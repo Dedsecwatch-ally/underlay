@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useBrowser, HistoryEntry, Bookmark } from '../context/BrowserContext';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Clock, Star, Search, Tag, X, Download, ShieldCheck } from 'lucide-react';
+import { Clock, Star, Search, Tag, X, Download, ShieldCheck, Trash2 } from 'lucide-react';
 import classNames from 'classnames';
 
 export function HistoryOverlay({ isOpen, onClose }: { isOpen: boolean, onClose: () => void }) {
@@ -45,27 +45,29 @@ export function HistoryOverlay({ isOpen, onClose }: { isOpen: boolean, onClose: 
                     className="absolute top-10 bottom-0 left-0 w-[400px] bg-[#1a1a1e]/95 backdrop-blur-xl border-r border-white/10 z-40 flex flex-col shadow-2xl"
                 >
                     <div className="h-12 border-b border-white/10 flex items-center px-4 gap-2">
-                        <button
-                            className={`p-2 rounded ${activeTab === 'history' ? 'bg-white/10 text-white' : 'text-white/40 hover:text-white'}`}
-                            onClick={() => setActiveTab('history')}
-                            title="History"
-                        >
-                            <Clock size={16} />
-                        </button>
-                        <button
-                            className={`p-2 rounded ${activeTab === 'bookmarks' ? 'bg-white/10 text-white' : 'text-white/40 hover:text-white'}`}
-                            onClick={() => setActiveTab('bookmarks')}
-                            title="Bookmarks"
-                        >
-                            <Star size={16} />
-                        </button>
-                        <button
-                            className={`p-2 rounded ${activeTab === 'downloads' ? 'bg-white/10 text-white' : 'text-white/40 hover:text-white'}`}
-                            onClick={() => setActiveTab('downloads')}
-                            title="Downloads"
-                        >
-                            <Download size={16} />
-                        </button>
+                        <div className="flex bg-black/20 p-1 rounded-lg">
+                            <button
+                                className={`p-1.5 px-3 rounded-md text-xs font-medium transition-all ${activeTab === 'history' ? 'bg-white/10 text-white shadow-sm' : 'text-white/40 hover:text-white'}`}
+                                onClick={() => setActiveTab('history')}
+                                title="History"
+                            >
+                                History
+                            </button>
+                            <button
+                                className={`p-1.5 px-3 rounded-md text-xs font-medium transition-all ${activeTab === 'bookmarks' ? 'bg-white/10 text-white shadow-sm' : 'text-white/40 hover:text-white'}`}
+                                onClick={() => setActiveTab('bookmarks')}
+                                title="Bookmarks"
+                            >
+                                Bookmarks
+                            </button>
+                            <button
+                                className={`p-1.5 px-3 rounded-md text-xs font-medium transition-all ${activeTab === 'downloads' ? 'bg-white/10 text-white shadow-sm' : 'text-white/40 hover:text-white'}`}
+                                onClick={() => setActiveTab('downloads')}
+                                title="Downloads"
+                            >
+                                Downloads
+                            </button>
+                        </div>
                         <div className="flex-1 relative ml-2">
                             <Search size={14} className="absolute left-2 top-2 text-white/30" />
                             <input
@@ -83,6 +85,21 @@ export function HistoryOverlay({ isOpen, onClose }: { isOpen: boolean, onClose: 
                     <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
                         {activeTab === 'history' && (
                             <div className="flex flex-col gap-6">
+                                {filteredHistory.length > 0 && (
+                                    <div className="flex justify-end px-1">
+                                        <button
+                                            onClick={() => {
+                                                if (window.confirm('Are you sure you want to clear your browsing history?')) {
+                                                    dispatch({ type: 'CLEAR_HISTORY' });
+                                                }
+                                            }}
+                                            className="group flex items-center gap-2 px-3 py-1.5 rounded-full bg-red-500/10 text-red-400 hover:bg-red-500/20 hover:text-red-300 transition-all text-xs font-medium border border-red-500/10 hover:border-red-500/30"
+                                        >
+                                            <Trash2 size={12} className="group-hover:scale-110 transition-transform" />
+                                            Clear All History
+                                        </button>
+                                    </div>
+                                )}
                                 {Object.entries(historyGroups).map(([date, entries]) => (
                                     <div key={date}>
                                         <div className="text-xs font-bold text-underlay-accent mb-2 uppercase tracking-wide opacity-80">{date}</div>

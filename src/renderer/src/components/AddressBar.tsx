@@ -1,6 +1,6 @@
 import React, { useState, useEffect, KeyboardEvent } from 'react';
 import { useBrowser } from '../context/BrowserContext';
-import { ArrowLeft, ArrowRight, RotateCcw, ShieldCheck, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, RotateCcw, ShieldCheck, X, Star, VenetianMask } from 'lucide-react';
 
 import { motion, AnimatePresence } from 'framer-motion';
 import { CertViewer } from './CertViewer';
@@ -13,10 +13,19 @@ export function AddressBar() {
     const [showCertViewer, setShowCertViewer] = useState(false);
     const isLoading = activeTab?.status === 'loading';
 
+    const isBookmarked = state.bookmarks.some(b => b.url === activeTab?.url);
+
+    const toggleBookmark = () => {
+        if (activeTab) {
+            dispatch({ type: 'TOGGLE_BOOKMARK', payload: { url: activeTab.url, title: activeTab.title } });
+        }
+    };
+
     // Sync input with active tab URL
     useEffect(() => {
         if (activeTab) {
-            setInputUrl(activeTab.url);
+            // Hide internal newtab url for cleaner aesthetics
+            setInputUrl(activeTab.url === 'underlay://newtab' ? '' : activeTab.url);
         }
     }, [activeTab?.id, activeTab?.url]);
 
@@ -28,9 +37,10 @@ export function AddressBar() {
         // In a real app we'd map security state to tab ID. 
         // For now, assuming single tab dominance or simple event flow
         if (window.electron.security?.onSecurityStateChange) {
-            window.electron.security.onSecurityStateChange((data) => {
+            const cleanup = window.electron.security.onSecurityStateChange((data) => {
                 setSecurityState(data);
             });
+            return cleanup;
         }
     }, [activeTab?.id]);
 
@@ -107,13 +117,17 @@ export function AddressBar() {
                 )}
             </div>
 
-            <div className="flex-1 bg-underlay-bg rounded-md h-8 flex items-center px-2 gap-2 border border-underlay-border focus-within:border-underlay-accent/50 transition-colors shadow-inner relative">
+            <div className={`flex-1 bg-underlay-bg rounded-md h-8 flex items-center px-2 gap-2 border border-underlay-border focus-within:border-underlay-accent/50 transition-colors shadow-inner relative ${activeTab?.incognito ? 'bg-zinc-900 border-zinc-700 shadow-[0_0_15px_rgba(0,0,0,0.5)]' : ''}`}>
                 <div className="flex items-center gap-2 cursor-pointer hover:bg-underlay-text/5 p-1 rounded" onClick={() => setShowCertViewer(!showCertViewer)}>
-                    <LockIcon size={14} className={lockColor} />
-                    {tlsVersion && (
+                    {activeTab?.incognito ? (
+                        <VenetianMask size={14} className="text-zinc-400" />
+                    ) : (
+                        <LockIcon size={14} className={lockColor} />
+                    )}
+                    {tlsVersion && !activeTab?.incognito && (
                         <span className="text-[9px] bg-green-500/20 text-green-400 px-1 rounded font-bold">{tlsVersion}</span>
                     )}
-                    {activeTab?.url.startsWith('http:') && (
+                    {activeTab?.url.startsWith('http:') && !activeTab?.incognito && (
                         <span className="text-[9px] font-bold uppercase tracking-wider text-red-400">Not Secure</span>
                     )}
                 </div>
@@ -129,12 +143,19 @@ export function AddressBar() {
                 )}
 
                 <input
-                    className="bg-transparent border-none outline-none w-full text-xs text-underlay-text placeholder-underlay-text/20 font-mono"
+                    className="bg-transparent border-none outline-none flex-1 w-full text-xs text-underlay-text placeholder-underlay-text/20 font-mono"
                     value={inputUrl}
                     onChange={(e) => setInputUrl(e.target.value)}
                     onKeyDown={handleKeyDown}
                     spellCheck={false}
                 />
+
+                <button
+                    onClick={toggleBookmark}
+                    className={`p-1 rounded-md transition-colors ${isBookmarked ? 'text-yellow-400 hover:bg-yellow-400/10' : 'text-underlay-text/20 hover:text-underlay-text/60 hover:bg-underlay-text/5'}`}
+                >
+                    <Star size={14} fill={isBookmarked ? "currentColor" : "none"} />
+                </button>
             </div>
 
             {/* Loading Indicator */}

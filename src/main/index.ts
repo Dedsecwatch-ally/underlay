@@ -1,4 +1,7 @@
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, shell, session, webContents } from 'electron';
+import path from 'path';
+import fs from 'fs';
+import os from 'os';
 import { join } from 'path';
 
 // Prevent garbage collection
@@ -44,12 +47,81 @@ function createWindow() {
 
 // App lifecycle
 app.whenReady().then(() => {
-    createWindow();
+    // Handle Downloads
+    session.defaultSession.on('will-download', (event: any, item: any, webContents: any) => {
+        // Prevent default behavior if needed (optional) but generally we want it to download
+        // item.setSavePath(...) can be used to set default path
 
-    const { session, webContents } = require('electron');
+        const downloadId = Date.now().toString(); // Or use a UUID
+        const fileName = item.getFilename();
+        const url = item.getURL();
+        const savePath = item.getSavePath();
+        const totalBytes = item.getTotalBytes();
+
+        // Notify Renderer: Start
+        if (mainWindow) {
+            mainWindow.webContents.send('download:update', {
+                id: downloadId,
+                filename: fileName,
+                path: savePath,
+                url: url,
+                state: 'progressing',
+                receivedBytes: 0,
+                totalBytes: totalBytes
+            });
+        }
+
+        item.on('updated', (event: any, state: any) => {
+            if (state === 'interrupted') {
+                if (mainWindow) {
+                    mainWindow.webContents.send('download:update', {
+                        id: downloadId,
+                        state: 'interrupted',
+                        receivedBytes: item.getReceivedBytes()
+                    });
+                }
+            } else if (state === 'progressing') {
+                if (item.isPaused()) {
+                    if (mainWindow) {
+                        mainWindow.webContents.send('download:update', {
+                            id: downloadId,
+                            state: 'paused',
+                            receivedBytes: item.getReceivedBytes()
+                        });
+                    }
+                } else {
+                    if (mainWindow) {
+                        mainWindow.webContents.send('download:update', {
+                            id: downloadId,
+                            state: 'progressing',
+                            receivedBytes: item.getReceivedBytes()
+                        });
+                    }
+                }
+            }
+        });
+
+        item.once('done', (event: any, state: any) => {
+            if (mainWindow) {
+                mainWindow.webContents.send('download:update', {
+                    id: downloadId,
+                    filename: fileName,
+                    path: savePath,
+                    url: url,
+                    state: state === 'completed' ? 'completed' : 'cancelled', // state can be 'completed', 'cancelled' or 'interrupted'
+                    receivedBytes: item.getReceivedBytes(),
+                    totalBytes: item.getTotalBytes()
+                });
+            }
+        });
+    });
+
+    // SPOOF USER AGENT (Standard Chrome on Mac)
+    session.defaultSession.setUserAgent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
 
     // Privacy & Security Shield Configuration
-    let isPrivacyShieldActive = true;
+    // Privacy & Security Shield Configuration
+    let isPrivacyShieldActive = false;
 
     // Comprehensive "Hacker" Blocklist
     const BLOCKLIST = {
@@ -102,6 +174,11 @@ app.whenReady().then(() => {
     // Network Monitoring & Privacy Shield
     session.defaultSession.webRequest.onBeforeRequest((details: any, callback: any) => {
         if (mainWindow && !mainWindow.isDestroyed()) {
+
+            // 0. Whitelist Main Frame Navigations (Ensure top-level page loads always work)
+            if (details.resourceType === 'mainFrame') {
+                return callback({});
+            }
 
             // 1. Ad & Threat Blocking
             if (isPrivacyShieldActive) {
@@ -298,6 +375,8 @@ app.whenReady().then(() => {
         if (contents.getType() === 'webview') {
             contents.on('did-start-navigation', () => {
                 try {
+                    /* 
+                    // OPTIMIZATION: Disabled automatic debugger attachment to improve performance/compatibility (Netflix/YouTube)
                     if (!contents.debugger.isAttached()) {
                         contents.debugger.attach('1.3');
                         contents.debugger.sendCommand('Network.enable');
@@ -306,14 +385,18 @@ app.whenReady().then(() => {
                         contents.debugger.sendCommand('Overlay.enable');
                         contents.debugger.sendCommand('Profiler.enable');
                     }
+                    */
                 } catch (err) {
                     console.error('Debugger attach failed', err);
                 }
             });
 
             // YOUTUBE AD BLOCKING INJECTION
+            // YOUTUBE AD BLOCKING INJECTION
             contents.on('dom-ready', () => {
                 const url = contents.getURL();
+                /*
+                // DEBUG: Temporarily disabled to check if this causes crashes
                 if (url.includes('youtube.com')) {
                     // 1. Cosmetic Filtering (Hide Ad Elements)
                     contents.insertCSS(`
@@ -329,14 +412,14 @@ app.whenReady().then(() => {
                             pointer-events: none !important;
                         }
                     `);
-
+    
                     // 2. Behavioral Blocking (Aggressive Skip)
                     contents.executeJavaScript(`
                         (() => {
                             if (window._adBlockerRunning) return;
                             window._adBlockerRunning = true;
                             console.log('[Privacy] YouTube Ad Blocker Active');
-
+    
                             const skipAd = () => {
                                 const video = document.querySelector('video');
                                 const skipBtn = document.querySelector('.ytp-ad-skip-button, .ytp-ad-skip-button-modern, .videoAdUiSkipButton');
@@ -352,7 +435,7 @@ app.whenReady().then(() => {
                                 if (overlayClose) {
                                     overlayClose.click();
                                 }
-
+    
                                 // Fast Forward Video Ads
                                 if (video) {
                                     const isAd = document.querySelector('.ad-showing') || document.querySelector('.ad-interrupting');
@@ -366,10 +449,10 @@ app.whenReady().then(() => {
                                     }
                                 }
                             };
-
+    
                             // Run on interval as fallback
                             setInterval(skipAd, 100);
-
+    
                             // Run on mutation for instant reaction
                             const observer = new MutationObserver((mutations) => {
                                 for (const m of mutations) {
@@ -389,6 +472,7 @@ app.whenReady().then(() => {
                         })();
                     `);
                 }
+                */
             });
 
             contents.debugger.on('message', (_event, method, params) => {
@@ -554,8 +638,98 @@ app.whenReady().then(() => {
         }
     });
 
-});
+    // Extension Management
+    ipcMain.handle('extension:load', async (_e) => {
+        try {
+            const { dialog } = require('electron');
+            const result = await dialog.showOpenDialog(mainWindow!, {
+                properties: ['openDirectory']
+            });
 
-app.on('window-all-closed', () => {
-    if (process.platform !== 'darwin') app.quit();
+            if (result.canceled || result.filePaths.length === 0) return null;
+
+            const extensionPath = result.filePaths[0];
+            const extension = await session.defaultSession.loadExtension(extensionPath);
+            return { id: extension.id, name: extension.name, version: extension.version };
+        } catch (e: any) {
+            console.error('Failed to load extension:', e);
+            throw e;
+        }
+    });
+
+    ipcMain.handle('extension:list', async () => {
+        return session.defaultSession.getAllExtensions().map((ext: Electron.Extension) => ({
+            id: ext.id,
+            name: ext.name,
+            version: ext.version
+        }));
+    });
+
+    ipcMain.handle('extension:remove', async (_e, id) => {
+        session.defaultSession.removeExtension(id);
+        return true;
+        ipcMain.on('shell:show-item', (_e, path) => {
+            shell.showItemInFolder(path);
+        });
+
+    });
+
+    // Sync / Import Handlers
+    ipcMain.handle('sync:import-bookmarks', async (_e, browser: 'chrome' | 'brave' | 'edge') => {
+        try {
+            const homeDir = os.homedir();
+            let bookmarksPath = '';
+
+            switch (browser) {
+                case 'chrome':
+                    bookmarksPath = path.join(homeDir, 'Library/Application Support/Google/Chrome/Default/Bookmarks');
+                    break;
+                case 'brave':
+                    bookmarksPath = path.join(homeDir, 'Library/Application Support/BraveSoftware/Brave-Browser/Default/Bookmarks');
+                    break;
+                case 'edge':
+                    bookmarksPath = path.join(homeDir, 'Library/Application Support/Microsoft Edge/Default/Bookmarks');
+                    break;
+                default:
+                    return [];
+            }
+
+            if (!fs.existsSync(bookmarksPath)) {
+                console.warn(`${browser} bookmarks file not found at:`, bookmarksPath);
+                return [];
+            }
+
+            const content = fs.readFileSync(bookmarksPath, 'utf-8');
+            const data = JSON.parse(content);
+            const bookmarks: { title: string, url: string }[] = [];
+
+            const traverse = (node: any) => {
+                if (node.type === 'url') {
+                    bookmarks.push({ title: node.name, url: node.url });
+                } else if (node.children) {
+                    node.children.forEach(traverse);
+                }
+            };
+
+            if (data.roots) {
+                Object.values(data.roots).forEach((root: any) => traverse(root));
+            }
+
+            return bookmarks;
+        } catch (e) {
+            console.error(`Failed to import ${browser} bookmarks:`, e);
+            return [];
+        }
+    });
+
+    // Create window when app is ready
+    createWindow();
+
+    app.on('activate', () => {
+        if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    });
+
+    app.on('window-all-closed', () => {
+        if (process.platform !== 'darwin') app.quit();
+    });
 });

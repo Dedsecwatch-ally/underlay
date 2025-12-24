@@ -9,12 +9,12 @@ declare namespace JSX {
 interface Window {
     electron: {
         versions: NodeJS.ProcessVersions;
-        onNetworkRequest: (callback: (data: NetworkRequest) => void) => void;
-        onNetworkResponse: (callback: (data: NetworkResponse) => void) => void;
-        onNetworkComplete: (callback: (data: NetworkComplete) => void) => void;
-        onPerformanceUpdate: (callback: (data: PerformanceData) => void) => void;
-        onDownloadUpdate: (callback: (data: any) => void) => void;
-        onNetworkCDP: (callback: (data: any) => void) => void;
+        onNetworkRequest: (callback: (data: NetworkRequest) => void) => () => void;
+        onNetworkResponse: (callback: (data: NetworkResponse) => void) => () => void;
+        onNetworkComplete: (callback: (data: NetworkComplete) => void) => () => void;
+        onPerformanceUpdate: (callback: (data: PerformanceData) => void) => () => void;
+        onDownloadUpdate: (callback: (data: any) => void) => () => void;
+        onNetworkCDP: (callback: (data: any) => void) => () => void;
         setBlockedPatterns: (patterns: string[]) => void;
         perfControl: {
             throttleCPU: (pid: number, rate: number) => void;
@@ -23,21 +23,32 @@ interface Window {
             gc: (pid: number) => void;
         };
         security: {
-            onPermissionRequest: (callback: (data: any) => void) => void;
+            onPermissionRequest: (callback: (data: any) => void) => () => void;
             getPermissions: () => Promise<any[]>;
             revoke: (origin: string, permission: string) => void;
-            onSecurityStateChange: (callback: (data: any) => void) => void;
+            onSecurityStateChange: (callback: (data: any) => void) => () => void;
         };
         privacy: {
-            onTrackerBlocked: (callback: (data: any) => void) => void;
-            onCookieDetected: (callback: (data: any) => void) => void;
-            onFingerprintAttempt: (callback: (data: any) => void) => void;
+            onTrackerBlocked: (callback: (data: any) => void) => () => void;
+            onCookieDetected: (callback: (data: any) => void) => () => void;
+            onFingerprintAttempt: (callback: (data: any) => void) => () => void;
             toggleShield: (active: boolean) => void;
         };
         devtools: {
             getDOM: () => Promise<any>;
             toggleFPS: (show: boolean) => void;
             togglePaintRects: (show: boolean) => void;
+        };
+        extensions: {
+            load: () => Promise<{ id: string; name: string; version: string } | null>;
+            list: () => Promise<Array<{ id: string; name: string; version: string }>>;
+            remove: (id: string) => Promise<boolean>;
+        };
+        sync: {
+            importBookmarks: (browser: 'chrome' | 'brave' | 'edge') => Promise<Array<{ title: string; url: string }>>;
+        };
+        shell: {
+            showItem: (path: string) => void;
         };
     }
 }

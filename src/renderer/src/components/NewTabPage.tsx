@@ -1,31 +1,50 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, Compass, Activity, Youtube, Clapperboard, MonitorPlay, Tv, Sparkles, Github, Cloud } from 'lucide-react';
+import { Search, Compass, Activity, Youtube, Clapperboard, MonitorPlay, Tv, Sparkles, Github, Cloud, VenetianMask, Mail, HardDrive, FileText, Calendar, MapPin, Image as ImageIcon, Languages } from 'lucide-react';
 
 import { useBrowser } from '../context/BrowserContext';
 import { usePrivacyStats, formatBytes } from '../hooks/usePrivacyStats';
 
+// ... (keep wallpapers) ...
 // ULTRA PREMIUIM 4K WALLPAPERS - "Underlay Aesthetic"
 const CUSTOM_WALLPAPERS = [
+    // --- FEATURED AESTHETIC ---
     'https://images.unsplash.com/photo-1614850523459-c2f4c699c52e?q=90&w=3840&auto=format&fit=crop', // Deep Pink/Blue Fluid
     'https://images.unsplash.com/photo-1620121692029-d088224ddc74?q=90&w=3840&auto=format&fit=crop', // Dark Minimal Geometric
     'https://images.unsplash.com/photo-1550684848-fac1c5b4e853?q=90&w=3840&auto=format&fit=crop', // Liquid Dark
     'https://images.unsplash.com/photo-1634017839464-5c339ebe3cb4?q=90&w=3840&auto=format&fit=crop', // Minimalist 3D Geometry
     'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=90&w=3840&auto=format&fit=crop', // Dark Oil
 
-    // Scenery & Nature
+    // --- SPACE & FUTURISM ---
+    'https://images.unsplash.com/photo-1451187580459-43490279c0fa?q=90&w=3840&auto=format&fit=crop', // Orbit View
+    'https://images.unsplash.com/photo-1534996858221-380b92700493?q=90&w=3840&auto=format&fit=crop', // Pool of Stars
+    'https://images.unsplash.com/photo-1614728853975-a093845c77e6?q=90&w=3840&auto=format&fit=crop', // Abstract Particles
+    'https://images.unsplash.com/photo-1446941611757-91d2c3bd3d45?q=90&w=3840&auto=format&fit=crop', // Earth Dark
+    'https://images.unsplash.com/photo-1462331940025-496dfbfc7564?q=90&w=3840&auto=format&fit=crop', // Galaxy Nebula
+
+    // --- SCENERY & NATURE (DARK MOODY) ---
     'https://images.unsplash.com/photo-1472214103451-9374bd1c798e?q=90&w=3840&auto=format&fit=crop', // Epic Mountains
-    'https://images.unsplash.com/photo-1493976040374-85c8e12f0c0e?q=90&w=3840&auto=format&fit=crop', // Japan Night (Anime Vibe)
+    'https://images.unsplash.com/photo-1493976040374-85c8e12f0c0e?q=90&w=3840&auto=format&fit=crop', // Japan Night
+    'https://images.unsplash.com/photo-1504608524841-42fe6f032b4b?q=90&w=3840&auto=format&fit=crop', // Stormy Ocean
+    'https://images.unsplash.com/photo-1519681393798-7092873c6d0e?q=90&w=3840&auto=format&fit=crop', // Starry Forest
+    'https://images.unsplash.com/photo-1500375592092-40eb2168fd21?q=90&w=3840&auto=format&fit=crop', // Misty Lake
 
-    // Cars
-    'https://images.unsplash.com/photo-1532906616428-dab6a8775f98?q=90&w=3840&auto=format&fit=crop', // F1 CAr
-    'https://images.unsplash.com/photo-1544614471-32906d3f2b8c?q=90&w=3840&auto=format&fit=crop', // Hypercar (Lamborghini)
-    'https://images.unsplash.com/photo-1614200179396-2bdb77ebf819?q=90&w=3840&auto=format&fit=crop', // Dark Maclaren
+    // --- CARS & MACHINES ---
+    'https://images.unsplash.com/photo-1532906616428-dab6a8775f98?q=90&w=3840&auto=format&fit=crop', // F1
+    'https://images.unsplash.com/photo-1544614471-32906d3f2b8c?q=90&w=3840&auto=format&fit=crop', // Supercar
+    'https://images.unsplash.com/photo-1614200179396-2bdb77ebf819?q=90&w=3840&auto=format&fit=crop', // Dark McLaren
+    'https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?q=90&w=3840&auto=format&fit=crop', // Cinematic Car
 
-    // Anime / Cyberpunk Aesthetic
-    'https://images.unsplash.com/photo-1563089145681-4a51e712aadd?q=90&w=3840&auto=format&fit=crop', // Neon Cyberpunk City
-    'https://images.unsplash.com/photo-1578632767115-351597cf2477?q=90&w=3840&auto=format&fit=crop', // Anime Style Street
+    // --- CYBERPUNK & NEON ---
+    'https://images.unsplash.com/photo-1563089145681-4a51e712aadd?q=90&w=3840&auto=format&fit=crop', // Neon City
+    'https://images.unsplash.com/photo-1578632767115-351597cf2477?q=90&w=3840&auto=format&fit=crop', // Anime Street
+    'https://images.unsplash.com/photo-1555680202-c86f0e12f086?q=90&w=3840&auto=format&fit=crop', // Rainy Night
+    'https://images.unsplash.com/photo-1605218427306-022ba9515271?q=90&w=3840&auto=format&fit=crop', // Purple Grid
+
+    // --- ARCHITECTURE ---
+    'https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?q=90&w=3840&auto=format&fit=crop', // Skyscrapers
+    'https://images.unsplash.com/photo-1506869640319-fe1a24fd76dc?q=90&w=3840&auto=format&fit=crop', // Dark Bridge
 ];
 
 // Animation Variants for Staggered Entrance
@@ -50,7 +69,7 @@ const itemVariants = {
     }
 };
 
-export function NewTabPage({ onNavigate }: { onNavigate: (url: string) => void }) {
+export function NewTabPage({ onNavigate, incognito }: { onNavigate: (url: string) => void; incognito?: boolean }) {
     const { state } = useBrowser();
     // const fps = useFPS(); (Removed)
     const stats = usePrivacyStats();
@@ -112,44 +131,63 @@ export function NewTabPage({ onNavigate }: { onNavigate: (url: string) => void }
 
     return (
         <div className="absolute inset-0 flex flex-col text-white overflow-hidden bg-black font-sans selection:bg-cyan-500/30">
-            {/* BREATHING WALLPAPER LAYER */}
-            <AnimatePresence mode='popLayout'>
-                <motion.div
-                    key={wallpaper}
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    transition={{ duration: 1 }}
-                    className="absolute inset-0 z-0"
-                >
-                    <motion.img
-                        src={wallpaper}
-                        alt="Wallpaper"
-                        decoding="async"
-                        initial={{ scale: 1.05, filter: 'brightness(0.5)' }}
-                        animate={{
-                            scale: 1,
-                            filter: ['brightness(0.8)', 'brightness(1)']
-                        }}
-                        transition={{
-                            scale: { duration: 6, ease: "easeOut" },
-                            filter: { duration: 4, repeat: Infinity, repeatType: "reverse", ease: "easeInOut" }
-                        }}
-                        className="w-full h-full object-cover"
-                        onError={(e) => {
-                            // Fallback if image fails
-                            e.currentTarget.src = CUSTOM_WALLPAPERS[0];
-                        }}
-                    />
-                    {/* Cinematic Vignette */}
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-black/60 opacity-80" />
-                </motion.div>
-            </AnimatePresence>
+            {/* BACKGROUND LAYER */}
+            {incognito ? (
+                // INCOGNITO BACKGROUND (Darker, Minimal)
+                <div className="absolute inset-0 bg-[#0A0A0A]">
+                    <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-zinc-900/50 via-[#0A0A0A] to-[#0A0A0A]" />
+                    {/* Subtle Pattern */}
+                    <div className="absolute inset-0 opacity-[0.03]" style={{ backgroundImage: 'radial-gradient(#ffffff 1px, transparent 1px)', backgroundSize: '30px 30px' }}></div>
+                </div>
+            ) : (
+                // BREATHING WALLPAPER LAYER (Normal)
+                <AnimatePresence mode='popLayout'>
+                    <motion.div
+                        key={wallpaper}
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        transition={{ duration: 1 }}
+                        className="absolute inset-0 z-0"
+                    >
+                        <motion.img
+                            src={wallpaper}
+                            alt="Wallpaper"
+                            decoding="async"
+                            initial={{ scale: 1.05, filter: 'brightness(0.5)' }}
+                            animate={{
+                                scale: 1,
+                                filter: ['brightness(0.8)', 'brightness(1)']
+                            }}
+                            transition={{
+                                scale: { duration: 6, ease: "easeOut" },
+                                filter: { duration: 4, repeat: Infinity, repeatType: "reverse", ease: "easeInOut" }
+                            }}
+                            className="w-full h-full object-cover"
+                            onError={(e) => {
+                                // Fallback if image fails
+                                e.currentTarget.src = CUSTOM_WALLPAPERS[0];
+                            }}
+                        />
+                        {/* Cinematic Vignette */}
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-black/60 opacity-80" />
+                    </motion.div>
+                </AnimatePresence>
+            )}
 
 
+
+
+
+            // ... (existing code)
 
             {/* TOP WIDGETS */}
-            <CryptoWidget />
+            {!incognito && (
+                <>
+                    <GoogleAppsWidget onNavigate={onNavigate} />
+                    <CryptoWidget />
+                </>
+            )}
 
 
 
@@ -163,17 +201,34 @@ export function NewTabPage({ onNavigate }: { onNavigate: (url: string) => void }
             >
 
 
-                {/* CENTERED CLOCK - Minimal & Aesthetic */}
+                {/* CENTER CONTENT */}
                 <motion.div
                     variants={itemVariants}
                     className="flex flex-col items-center justify-center mb-8 text-center"
                 >
-                    <h1 className="text-6xl font-light tracking-tighter text-transparent bg-clip-text bg-gradient-to-b from-white/90 via-white/50 to-white/10 backdrop-blur-sm select-none">
-                        {currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </h1>
-                    <div className="text-[10px] font-semibold tracking-[0.8em] uppercase text-white/30 mt-2 mix-blend-plus-lighter">
-                        {currentTime.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}
-                    </div>
+                    {incognito ? (
+                        <div className="flex flex-col items-center gap-6 mb-4">
+                            <div className="w-24 h-24 bg-zinc-800 rounded-full flex items-center justify-center mb-2 shadow-2xl border border-white/5">
+                                <VenetianMask size={48} className="text-zinc-400" strokeWidth={1.5} />
+                            </div>
+                            <div>
+                                <h1 className="text-4xl font-bold text-white mb-2 tracking-tight">You are Incognito</h1>
+                                <p className="text-zinc-500 max-w-md mx-auto text-sm leading-relaxed">
+                                    Your browsing history, cookies, and site data will not be saved.
+                                    Downloads and bookmarks created will still be kept.
+                                </p>
+                            </div>
+                        </div>
+                    ) : (
+                        <>
+                            <h1 className="text-6xl font-light tracking-tighter text-transparent bg-clip-text bg-gradient-to-b from-white/90 via-white/50 to-white/10 backdrop-blur-sm select-none">
+                                {currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </h1>
+                            <div className="text-[10px] font-semibold tracking-[0.8em] uppercase text-white/30 mt-2 mix-blend-plus-lighter">
+                                {currentTime.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}
+                            </div>
+                        </>
+                    )}
                 </motion.div>
 
                 {/* FAVORITES ROW - Smaller now */}
@@ -272,23 +327,25 @@ export function NewTabPage({ onNavigate }: { onNavigate: (url: string) => void }
             </motion.div>
 
             {/* BOTTOM WIDGETS */}
-            <div className="z-10 relative px-12 pb-6 flex items-end justify-between w-full h-24">
+            {!incognito && (
+                <div className="z-10 relative px-12 pb-6 flex items-end justify-between w-full h-24">
 
-                {/* PRIVACY STATS BAR (CENTER) */}
-                <motion.div
-                    initial={{ y: 20, opacity: 0, scale: 0.95 }}
-                    animate={{ y: 0, opacity: 1, scale: 1 }}
-                    transition={{ delay: 1.6, duration: 0.8 }}
-                    className="flex items-center gap-8 px-8 py-3 bg-black/40 backdrop-blur-2xl rounded-2xl border border-white/5 mx-auto"
-                >
-                    <StatItem label="Bandwidth Saved" value={formatBytes(stats.bandwidthSavedBytes)} color="text-cyan-400" />
-                    <div className="w-[1px] h-8 bg-white/10" />
-                    <StatItem label="Trackers Blocked" value={stats.trackersBlocked.toLocaleString()} color="text-red-400" />
-                    <div className="w-[1px] h-8 bg-white/10" />
-                    <StatItem label="Ads Blocked" value={stats.adsBlocked.toLocaleString()} color="text-yellow-400" />
-                </motion.div>
+                    {/* PRIVACY STATS BAR (CENTER) */}
+                    <motion.div
+                        initial={{ y: 20, opacity: 0, scale: 0.95 }}
+                        animate={{ y: 0, opacity: 1, scale: 1 }}
+                        transition={{ delay: 1.6, duration: 0.8 }}
+                        className="flex items-center gap-8 px-8 py-3 bg-black/40 backdrop-blur-2xl rounded-2xl border border-white/5 mx-auto"
+                    >
+                        <StatItem label="Bandwidth Saved" value={formatBytes(stats.bandwidthSavedBytes)} color="text-cyan-400" />
+                        <div className="w-[1px] h-8 bg-white/10" />
+                        <StatItem label="Trackers Blocked" value={stats.trackersBlocked.toLocaleString()} color="text-red-400" />
+                        <div className="w-[1px] h-8 bg-white/10" />
+                        <StatItem label="Ads Blocked" value={stats.adsBlocked.toLocaleString()} color="text-yellow-400" />
+                    </motion.div>
 
-            </div>
+                </div>
+            )}
         </div>
     );
 }
@@ -386,6 +443,84 @@ function CryptoItem({ label, value }: { label: string, value: number }) {
         <div className="flex flex-col items-end">
             <span className="text-[9px] font-bold text-white/30 tracking-widest">{label}</span>
             <span className="text-xs font-mono text-white/80">${value.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+        </div>
+    );
+}
+
+function GoogleAppsWidget({ onNavigate }: { onNavigate: (url: string) => void }) {
+    const [expanded, setExpanded] = useState(false);
+    const apps = [
+        { name: 'Google', url: 'https://google.com', icon: <Search size={16} /> },
+        { name: 'Gmail', url: 'https://mail.google.com', icon: <Mail size={16} /> },
+        { name: 'YouTube', url: 'https://youtube.com', icon: <Youtube size={16} /> },
+        { name: 'Drive', url: 'https://drive.google.com', icon: <HardDrive size={16} /> },
+        { name: 'Docs', url: 'https://docs.google.com', icon: <FileText size={16} /> },
+        { name: 'Calendar', url: 'https://calendar.google.com', icon: <Calendar size={16} /> },
+        { name: 'Maps', url: 'https://maps.google.com', icon: <MapPin size={16} /> },
+        { name: 'Photos', url: 'https://photos.google.com', icon: <ImageIcon size={16} /> },
+        { name: 'Translate', url: 'https://translate.google.com', icon: <Languages size={16} /> },
+    ];
+
+    return (
+        <div className="absolute top-8 left-8 z-20">
+            <AnimatePresence>
+                {expanded ? (
+                    <motion.div
+                        initial={{ scale: 0.9, opacity: 0, originX: 0, originY: 0 }}
+                        animate={{ scale: 1, opacity: 1 }}
+                        exit={{ scale: 0.9, opacity: 0 }}
+                        className="bg-black/60 backdrop-blur-xl border border-white/10 rounded-2xl p-4 shadow-2xl relative"
+                    >
+                        {/* Close Button / Header */}
+                        <div className="flex items-center justify-between mb-3 pb-2 border-b border-white/5">
+                            <h3 className="text-xs font-bold text-white/50 uppercase tracking-widest pl-1">Google Apps</h3>
+                            <button
+                                onClick={() => setExpanded(false)}
+                                className="w-5 h-5 flex items-center justify-center rounded-full bg-white/5 hover:bg-white/20 text-white/50 hover:text-white transition-colors"
+                            >
+                                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                            </button>
+                        </div>
+
+                        <div className="grid grid-cols-3 gap-3">
+                            {apps.map(app => (
+                                <button
+                                    key={app.name}
+                                    onClick={() => { onNavigate(app.url); setExpanded(false); }}
+                                    className="w-12 h-12 flex items-center justify-center rounded-xl bg-white/5 hover:bg-white/20 hover:scale-110 transition-all text-white/70 hover:text-white group relative shadow-lg shadow-black/20"
+                                >
+                                    {app.icon}
+
+                                    {/* Tooltip Pop-up */}
+                                    <div className="absolute -bottom-8 left-1/2 -translate-x-1/2 px-2 py-1 bg-black/90 text-white text-[10px] font-bold rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none border border-white/10 shadow-xl z-10 translate-y-2 group-hover:translate-y-0 duration-200">
+                                        {app.name}
+                                        <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-black/90 rotate-45 border-t border-l border-white/10"></div>
+                                    </div>
+                                </button>
+                            ))}
+                        </div>
+                    </motion.div>
+                ) : (
+                    <motion.button
+                        layoutId="google-folder"
+                        onClick={() => setExpanded(true)}
+                        className="w-14 h-14 bg-white/10 backdrop-blur-md border border-white/10 rounded-2xl flex items-center justify-center hover:bg-white/20 hover:scale-105 transition-all group shadow-xl"
+                        whileTap={{ scale: 0.95 }}
+                        initial={{ opacity: 0, scale: 0.8 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                    >
+                        <div className="grid grid-cols-2 gap-1 p-1">
+                            <div className="w-1.5 h-1.5 rounded-full bg-blue-500/80"></div>
+                            <div className="w-1.5 h-1.5 rounded-full bg-red-500/80"></div>
+                            <div className="w-1.5 h-1.5 rounded-full bg-yellow-500/80"></div>
+                            <div className="w-1.5 h-1.5 rounded-full bg-green-500/80"></div>
+                        </div>
+                        <div className="absolute -bottom-6 text-[10px] font-medium text-white/40 uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-opacity">
+                            Google
+                        </div>
+                    </motion.button>
+                )}
+            </AnimatePresence>
         </div>
     );
 }

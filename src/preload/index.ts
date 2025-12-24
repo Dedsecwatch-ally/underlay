@@ -5,27 +5,39 @@ contextBridge.exposeInMainWorld('electron', {
     versions: process.versions,
     onNetworkRequest: (callback: (data: any) => void) => {
         const { ipcRenderer } = require('electron');
-        ipcRenderer.on('network:request', (_: any, data: any) => callback(data));
+        const subscription = (_: any, data: any) => callback(data);
+        ipcRenderer.on('network:request', subscription);
+        return () => ipcRenderer.removeListener('network:request', subscription);
     },
     onNetworkResponse: (callback: (data: any) => void) => {
         const { ipcRenderer } = require('electron');
-        ipcRenderer.on('network:response', (_: any, data: any) => callback(data));
+        const subscription = (_: any, data: any) => callback(data);
+        ipcRenderer.on('network:response', subscription);
+        return () => ipcRenderer.removeListener('network:response', subscription);
     },
     onNetworkComplete: (callback: (data: any) => void) => {
         const { ipcRenderer } = require('electron');
-        ipcRenderer.on('network:complete', (_: any, data: any) => callback(data));
+        const subscription = (_: any, data: any) => callback(data);
+        ipcRenderer.on('network:complete', subscription);
+        return () => ipcRenderer.removeListener('network:complete', subscription);
     },
     onPerformanceUpdate: (callback: (data: any) => void) => {
         const { ipcRenderer } = require('electron');
-        ipcRenderer.on('performance:update', (_: any, data: any) => callback(data));
+        const subscription = (_: any, data: any) => callback(data);
+        ipcRenderer.on('performance:update', subscription);
+        return () => ipcRenderer.removeListener('performance:update', subscription);
     },
     onDownloadUpdate: (callback: (data: any) => void) => {
         const { ipcRenderer } = require('electron');
-        ipcRenderer.on('download:update', (_: any, data: any) => callback(data));
+        const subscription = (_: any, data: any) => callback(data);
+        ipcRenderer.on('download:update', subscription);
+        return () => ipcRenderer.removeListener('download:update', subscription);
     },
     onNetworkCDP: (callback: (data: any) => void) => {
         const { ipcRenderer } = require('electron');
-        ipcRenderer.on('network:cdp', (_: any, data: any) => callback(data));
+        const subscription = (_: any, data: any) => callback(data);
+        ipcRenderer.on('network:cdp', subscription);
+        return () => ipcRenderer.removeListener('network:cdp', subscription);
     },
     setBlockedPatterns: (patterns: string[]) => {
         const { ipcRenderer } = require('electron');
@@ -39,22 +51,51 @@ contextBridge.exposeInMainWorld('electron', {
     },
     security: {
         onPermissionRequest: (callback: (data: any) => void) => {
-            require('electron').ipcRenderer.on('security:permission-request', (_: any, data: any) => callback(data));
+            const subscription = (_: any, data: any) => callback(data);
+            require('electron').ipcRenderer.on('security:permission-request', subscription);
+            return () => require('electron').ipcRenderer.removeListener('security:permission-request', subscription);
         },
         getPermissions: () => require('electron').ipcRenderer.invoke('security:get-permissions'),
         revoke: (origin: string, permission: string) => require('electron').ipcRenderer.send('security:revoke', { origin, permission }),
-        onSecurityStateChange: (callback: (data: any) => void) => require('electron').ipcRenderer.on('security:state-changed', (_: any, data: any) => callback(data))
+        onSecurityStateChange: (callback: (data: any) => void) => {
+            const subscription = (_: any, data: any) => callback(data);
+            require('electron').ipcRenderer.on('security:state-changed', subscription);
+            return () => require('electron').ipcRenderer.removeListener('security:state-changed', subscription);
+        }
     },
     privacy: {
-        onTrackerBlocked: (callback: (data: any) => void) => require('electron').ipcRenderer.on('privacy:tracker-blocked', (_: any, data: any) => callback(data)),
-        onCookieDetected: (callback: (data: any) => void) => require('electron').ipcRenderer.on('privacy:cookie-detected', (_: any, data: any) => callback(data)),
-        onFingerprintAttempt: (callback: (data: any) => void) => require('electron').ipcRenderer.on('privacy:fingerprint-attempt', (_: any, data: any) => callback(data)),
+        onTrackerBlocked: (callback: (data: any) => void) => {
+            const subscription = (_: any, data: any) => callback(data);
+            require('electron').ipcRenderer.on('privacy:tracker-blocked', subscription);
+            return () => require('electron').ipcRenderer.removeListener('privacy:tracker-blocked', subscription);
+        },
+        onCookieDetected: (callback: (data: any) => void) => {
+            const subscription = (_: any, data: any) => callback(data);
+            require('electron').ipcRenderer.on('privacy:cookie-detected', subscription);
+            return () => require('electron').ipcRenderer.removeListener('privacy:cookie-detected', subscription);
+        },
+        onFingerprintAttempt: (callback: (data: any) => void) => {
+            const subscription = (_: any, data: any) => callback(data);
+            require('electron').ipcRenderer.on('privacy:fingerprint-attempt', subscription);
+            return () => require('electron').ipcRenderer.removeListener('privacy:fingerprint-attempt', subscription);
+        },
         toggleShield: (active: boolean) => require('electron').ipcRenderer.send('privacy:toggle-shield', active)
     },
     devtools: {
         getDOM: () => require('electron').ipcRenderer.invoke('devtools:get-dom'),
         toggleFPS: (show: boolean) => require('electron').ipcRenderer.send('devtools:toggle-fps', show),
         togglePaintRects: (show: boolean) => require('electron').ipcRenderer.send('devtools:toggle-paint-rects', show)
+    },
+    extensions: {
+        load: () => require('electron').ipcRenderer.invoke('extension:load'),
+        list: () => require('electron').ipcRenderer.invoke('extension:list'),
+        remove: (id: string) => require('electron').ipcRenderer.invoke('extension:remove', id)
+    },
+    sync: {
+        importBookmarks: (browser: 'chrome' | 'brave' | 'edge') => require('electron').ipcRenderer.invoke('sync:import-bookmarks', browser)
+    },
+    shell: {
+        showItem: (path: string) => require('electron').ipcRenderer.send('shell:show-item', path)
     }
 });
 

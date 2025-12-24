@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
     X, Settings, Monitor, Shield, Lock, Globe, Server, Cloud,
     Search, Puzzle, LayoutTemplate, Type, Download, Eye, Cpu,
-    RotateCcw, Wallet, Smartphone, ChevronRight, ExternalLink, Book
+    RotateCcw, Wallet, Smartphone, ChevronRight, ExternalLink, Book, Copy, Trash2, VenetianMask
 } from 'lucide-react';
 import classNames from 'classnames';
 
@@ -15,9 +15,9 @@ type SettingsTab =
     | 'accessibility' | 'system' | 'reset' | 'bookmarks';
 
 const SettingSection = ({ title, children }: { title: string, children: React.ReactNode }) => (
-    <div className="bg-underlay-bg/30 rounded-lg border border-underlay-border overflow-hidden mb-6">
-        <div className="px-6 py-4 border-b border-underlay-border bg-underlay-bg/50">
-            <h3 className="text-underlay-text font-medium">{title}</h3>
+    <div className="bg-white/5 rounded-xl border border-white/5 overflow-hidden mb-6 backdrop-blur-sm">
+        <div className="px-6 py-4 border-b border-white/5 bg-white/[0.02]">
+            <h3 className="text-white/90 font-medium tracking-wide text-sm uppercase opacity-70">{title}</h3>
         </div>
         <div className="p-0">
             {children}
@@ -60,20 +60,21 @@ const Toggle = ({ value, onChange }: { value: boolean, onChange: () => void }) =
     <button
         onClick={(e) => { e.stopPropagation(); onChange(); }}
         className={classNames(
-            "w-10 h-5 rounded-full relative transition-colors",
-            value ? "bg-underlay-accent" : "bg-underlay-text/20"
+            "w-11 h-6 rounded-full relative transition-all duration-300 shadow-inner",
+            value ? "bg-gradient-to-r from-cyan-500 to-blue-500 shadow-[0_0_10px_rgba(34,211,238,0.3)]" : "bg-zinc-800 border border-white/5"
         )}
     >
         <motion.div
-            animate={{ x: value ? 20 : 2 }}
-            className="absolute top-1 left-0 w-3 h-3 bg-white rounded-full shadow-sm"
+            animate={{ x: value ? 22 : 2 }}
+            className="absolute top-1 left-0 w-4 h-4 bg-white rounded-full shadow-md"
+            transition={{ type: "spring", stiffness: 500, damping: 30 }}
         />
     </button>
 );
 
 export function SettingsOverlay({ isOpen, onClose }: { isOpen: boolean, onClose: () => void }) {
     const { state, dispatch } = useBrowser();
-    const [activeTab, setActiveTab] = useState<SettingsTab>('appearance');
+    const [activeTab, setActiveTab] = useState<SettingsTab>('get_started');
 
     // Local state for UI toggles that aren't yet in global state
     const [uiState, setUiState] = useState({
@@ -92,23 +93,49 @@ export function SettingsOverlay({ isOpen, onClose }: { isOpen: boolean, onClose:
         setUiState(prev => ({ ...prev, [key]: !prev[key] }));
     };
 
+    // Extensions State
+    const [extensions, setExtensions] = useState<Array<{ id: string, name: string, version: string }>>([]);
+
+    React.useEffect(() => {
+        if (isOpen && activeTab === 'extensions') {
+            window.electron.extensions.list().then(setExtensions).catch(console.error);
+        }
+    }, [isOpen, activeTab]);
+
+    const handleLoadExtension = async () => {
+        try {
+            const ext = await window.electron.extensions.load();
+            if (ext) {
+                setExtensions(prev => [...prev, ext]);
+            }
+        } catch (e) {
+            console.error(e);
+        }
+    };
+
+    const handleRemoveExtension = async (id: string) => {
+        try {
+            await window.electron.extensions.remove(id);
+            setExtensions(prev => prev.filter(e => e.id !== id));
+        } catch (e) {
+            console.error(e);
+        }
+    };
+
+
+
     const MenuItems: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
         { id: 'get_started', label: 'Get started', icon: <Smartphone size={16} /> },
         { id: 'bookmarks', label: 'Bookmarks', icon: <Book size={16} /> },
-        { id: 'appearance', label: 'Appearance', icon: <Monitor size={16} /> },
-        { id: 'content', label: 'Content', icon: <LayoutTemplate size={16} /> },
         { id: 'shields', label: 'Shields', icon: <Shield size={16} /> },
         { id: 'privacy', label: 'Privacy and security', icon: <Lock size={16} /> },
-        { id: 'web3', label: 'Web3', icon: <Wallet size={16} /> },
         { id: 'sync', label: 'Sync', icon: <Cloud size={16} /> },
         { id: 'search', label: 'Search engine', icon: <Search size={16} /> },
         { id: 'extensions', label: 'Extensions', icon: <Puzzle size={16} /> },
         { id: 'autofill', label: 'Autofill and passwords', icon: <Type size={16} /> },
         { id: 'languages', label: 'Languages', icon: <Globe size={16} /> },
         { id: 'downloads', label: 'Downloads', icon: <Download size={16} /> },
-        { id: 'accessibility', label: 'Accessibility', icon: <Eye size={16} /> },
         { id: 'system', label: 'System', icon: <Cpu size={16} /> },
-        { id: 'reset', label: 'Reset settings', icon: <RotateCcw size={16} /> },
     ];
 
     return (
@@ -186,6 +213,17 @@ export function SettingsOverlay({ isOpen, onClose }: { isOpen: boolean, onClose:
                                             </SettingRow>
                                             <SettingRow label="Import bookmarks and settings" onClick={() => { }}>
                                                 <ChevronRight size={14} className="text-underlay-text/30" />
+                                            </SettingRow>
+                                            <SettingRow
+                                                label="New Incognito Tab"
+                                                description="Browse without saving history"
+                                                icon={<VenetianMask size={16} />}
+                                                onClick={() => {
+                                                    dispatch({ type: 'NEW_TAB', payload: { incognito: true } });
+                                                    onClose();
+                                                }}
+                                            >
+                                                <div className="w-2 h-2 bg-zinc-500 rounded-full"></div>
                                             </SettingRow>
                                         </SettingSection>
                                         <SettingSection title="Shortcuts">
@@ -266,6 +304,58 @@ export function SettingsOverlay({ isOpen, onClose }: { isOpen: boolean, onClose:
                                     </div>
                                 )}
 
+                                {activeTab === 'sync' && (
+                                    <div className="space-y-6">
+                                        <SettingSection title="Import Data">
+                                            {['chrome', 'brave', 'edge'].map(browser => (
+                                                <SettingRow
+                                                    key={browser}
+                                                    label={`Import from ${browser.charAt(0).toUpperCase() + browser.slice(1)}`}
+                                                    description={`Import bookmarks from default ${browser.charAt(0).toUpperCase() + browser.slice(1)} profile`}
+                                                    icon={<Cloud size={16} />}
+                                                >
+                                                    <button
+                                                        onClick={async () => {
+                                                            const btn = document.getElementById(`import-${browser}-btn`) as HTMLButtonElement;
+                                                            if (btn) {
+                                                                btn.disabled = true;
+                                                                btn.innerText = 'Importing...';
+                                                            }
+                                                            try {
+                                                                const bookmarks = await window.electron.sync.importBookmarks(browser as 'chrome' | 'brave' | 'edge');
+                                                                if (bookmarks.length > 0) {
+                                                                    dispatch({ type: 'IMPORT_BOOKMARKS', payload: { bookmarks } });
+                                                                    if (btn) btn.innerText = `Imported ${bookmarks.length}`;
+                                                                } else {
+                                                                    if (btn) btn.innerText = 'No bookmarks';
+                                                                }
+                                                            } catch (e) {
+                                                                console.error(e);
+                                                                if (btn) btn.innerText = 'Failed';
+                                                            }
+                                                            setTimeout(() => {
+                                                                if (btn) {
+                                                                    btn.disabled = false;
+                                                                    btn.innerText = 'Import';
+                                                                }
+                                                            }, 3000);
+                                                        }}
+                                                        id={`import-${browser}-btn`}
+                                                        className="px-4 py-1.5 bg-underlay-accent hover:bg-underlay-accent/80 text-white rounded text-xs transition-colors font-medium disabled:opacity-50 min-w-[80px]"
+                                                    >
+                                                        Import
+                                                    </button>
+                                                </SettingRow>
+                                            ))}
+                                        </SettingSection>
+                                        <SettingSection title="Sync Settings">
+                                            <SettingRow label="Sync everything" description="Sync history, passwords, and settings across devices">
+                                                <Toggle value={false} onChange={() => { }} />
+                                            </SettingRow>
+                                        </SettingSection>
+                                    </div>
+                                )}
+
                                 {activeTab === 'search' && (
                                     <div className="space-y-6">
                                         <SettingSection title="Search Engine">
@@ -280,6 +370,76 @@ export function SettingsOverlay({ isOpen, onClose }: { isOpen: boolean, onClose:
                                             </SettingRow>
                                             <SettingRow label="Manage search engines" onClick={() => { }}>
                                                 <ChevronRight size={14} className="text-underlay-text/30" />
+                                            </SettingRow>
+                                        </SettingSection>
+                                    </div>
+                                )}
+
+                                {activeTab === 'autofill' && (
+                                    <div className="space-y-6">
+                                        <SettingSection title="Passwords">
+                                            <div className="px-6 py-4 flex flex-col gap-4">
+                                                <div className="flex gap-2">
+                                                    <input id="pwd-url" placeholder="Website (e.g. google.com)" className="flex-1 bg-underlay-bg border border-underlay-border rounded px-3 py-2 text-sm text-underlay-text outline-none focus:border-underlay-accent/50" />
+                                                    <input id="pwd-user" placeholder="Username" className="flex-1 bg-underlay-bg border border-underlay-border rounded px-3 py-2 text-sm text-underlay-text outline-none focus:border-underlay-accent/50" />
+                                                    <input id="pwd-pass" type="password" placeholder="Password" className="flex-1 bg-underlay-bg border border-underlay-border rounded px-3 py-2 text-sm text-underlay-text outline-none focus:border-underlay-accent/50" />
+                                                    <button
+                                                        onClick={() => {
+                                                            const urlFn = document.getElementById('pwd-url') as HTMLInputElement;
+                                                            const userFn = document.getElementById('pwd-user') as HTMLInputElement;
+                                                            const passFn = document.getElementById('pwd-pass') as HTMLInputElement;
+                                                            if (urlFn.value && userFn.value && passFn.value) {
+                                                                dispatch({ type: 'ADD_PASSWORD', payload: { url: urlFn.value, username: userFn.value, password: passFn.value } });
+                                                                urlFn.value = '';
+                                                                userFn.value = '';
+                                                                passFn.value = '';
+                                                            }
+                                                        }}
+                                                        className="px-4 py-2 bg-underlay-accent hover:bg-underlay-accent/80 text-white rounded text-sm transition-colors font-medium"
+                                                    >
+                                                        Save
+                                                    </button>
+                                                </div>
+
+                                                <div className="mt-2 flex flex-col gap-2">
+                                                    {state.passwords.length === 0 && (
+                                                        <div className="text-center py-8 text-underlay-text/30 text-sm">
+                                                            No passwords saved yet.
+                                                        </div>
+                                                    )}
+                                                    {state.passwords.map(pwd => (
+                                                        <div key={pwd.id} className="flex items-center justify-between p-3 bg-underlay-bg rounded border border-underlay-border group">
+                                                            <div className="flex flex-col">
+                                                                <span className="text-sm font-medium text-underlay-text">{pwd.url}</span>
+                                                                <span className="text-xs text-underlay-text/50">{pwd.username}</span>
+                                                            </div>
+                                                            <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                                <button
+                                                                    className="p-1.5 hover:bg-white/10 rounded text-underlay-text/70 hover:text-white transition-colors"
+                                                                    title="Copy Password"
+                                                                    onClick={() => navigator.clipboard.writeText(pwd.password)}
+                                                                >
+                                                                    <Copy size={14} />
+                                                                </button>
+                                                                <button
+                                                                    className="p-1.5 hover:bg-red-500/20 rounded text-underlay-text/70 hover:text-red-400 transition-colors"
+                                                                    title="Delete"
+                                                                    onClick={() => dispatch({ type: 'REMOVE_PASSWORD', payload: { id: pwd.id } })}
+                                                                >
+                                                                    <Trash2 size={14} />
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        </SettingSection>
+                                        <SettingSection title="Preferences">
+                                            <SettingRow label="Offer to save passwords">
+                                                <Toggle value={true} onChange={() => { }} />
+                                            </SettingRow>
+                                            <SettingRow label="Auto Sign-in">
+                                                <Toggle value={true} onChange={() => { }} />
                                             </SettingRow>
                                         </SettingSection>
                                     </div>
@@ -354,7 +514,7 @@ export function SettingsOverlay({ isOpen, onClose }: { isOpen: boolean, onClose:
                                 )}
 
                                 {/* Fallback for unimplemented tabs */}
-                                {!['get_started', 'bookmarks', 'appearance', 'shields', 'privacy', 'search', 'downloads', 'languages', 'system', 'reset'].includes(activeTab) && (
+                                {!['get_started', 'bookmarks', 'appearance', 'shields', 'privacy', 'search', 'downloads', 'languages', 'system', 'reset', 'extensions'].includes(activeTab) && (
                                     <div className="flex flex-col items-center justify-center py-20 opacity-50">
                                         <Settings size={64} className="mb-4 text-underlay-text/20" />
                                         <p className="text-underlay-text/40">This section is not implemented yet.</p>
