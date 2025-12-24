@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Underlay | The Transparent Browser</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+    <div class="glow-bg"></div>
+
+    <nav>
+        <div class="logo">UNDERLAY</div>
+        <div class="links">
+            <a href="#features">Features</a>
+            <a href="#architecture">Architecture</a>
+            <a href="https://github.com" class="btn">Download Beta</a>
+        </div>
+    </nav>
+
+    <header>
+        <h1> The Browser That <br> <span class="gradient-text">Reveals Itself</span>.</h1>
+        <p class="subtitle">Stop browsing in a black box. See every request, every frame, and every byte in real-time.
+        </p>
+
+        <div class="hero-visual">
+            <div class="browser-mockup">
+                <div class="mockup-header">
+                    <div class="dots"><span class="red"></span><span class="yellow"></span><span class="green"></span>
+                    </div>
+                    <div class="bar">underlay://introspection</div>
+                </div>
+                <div class="mockup-body">
+                    <div class="graph-line"></div>
+                    <div class="graph-line delay-1"></div>
+                    <div class="graph-line delay-2"></div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <section id="features">
+        <div class="feature-card">
+            <h2>Introspection</h2>
+            <p>Built-in visualizers for Network waterfalls, Memory heaps, and Compositor layers. No DevTools required.
+            </p>
+        </div>
+        <div class="feature-card">
+            <h2>Adaptive Perf</h2>
+            <p>The engine monitors 60 FPS compliance and automatically downgrades visuals to keep your browsing fluid.
+            </p>
+        </div>
+        <div class="feature-card">
+            <h2>Privacy Shield</h2>
+            <p>Active fingerprinting detection proxied at the native level. We catch scripts before they catch you.</p>
+        </div>
+    </section>
+
+    <footer>
+        <p>Built with Electron + React + Framer Motion. Open Source.</p>
+    </footer>
+</body>
+
+</html>
