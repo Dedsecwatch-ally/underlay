@@ -252,9 +252,15 @@ function BrowserShell() {
                                                     dispatch({ type: 'UPDATE_TAB', payload: { id: tab.id, data: { status: 'loading' } } });
                                                 });
                                                 ref.addEventListener('did-stop-loading', () => {
-                                                    dispatch({ type: 'UPDATE_TAB', payload: { id: tab.id, data: { status: 'ready', title: ref.getTitle() } } });
+                                                    dispatch({ type: 'UPDATE_TAB', payload: { id: tab.id, data: { status: 'ready', title: ref.getTitle(), url: ref.getURL() } } });
                                                     // ADD HISTORY ENTRY
                                                     dispatch({ type: 'ADD_HISTORY', payload: { url: ref.getURL(), title: ref.getTitle() } });
+                                                });
+                                                ref.addEventListener('did-navigate', (e: any) => {
+                                                    dispatch({ type: 'UPDATE_TAB', payload: { id: tab.id, data: { url: e.url } } });
+                                                });
+                                                ref.addEventListener('did-navigate-in-page', (e: any) => {
+                                                    dispatch({ type: 'UPDATE_TAB', payload: { id: tab.id, data: { url: e.url } } });
                                                 });
                                                 ref.addEventListener('did-fail-load', () => {
                                                     dispatch({ type: 'UPDATE_TAB', payload: { id: tab.id, data: { status: 'crashed' } } });
