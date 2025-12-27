@@ -54,15 +54,15 @@ export function CommandPalette({ isOpen, onClose }: { isOpen: boolean, onClose: 
                 <div className="fixed inset-0 z-[100] flex items-start justify-center pt-[20vh]">
                     <motion.div
                         initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                        className="absolute inset-0 bg-black/50 backdrop-blur-sm"
-                        onClick={onClose}
+                        className="absolute inset-0 bg-black/80"
+                        onClick={onClose} // Keep onClick on the overlay
                     />
                     <motion.div
                         initial={{ scale: 0.95, opacity: 0, y: -20 }}
                         animate={{ scale: 1, opacity: 1, y: 0 }}
                         exit={{ scale: 0.95, opacity: 0, y: -20 }}
                         transition={{ type: "spring", damping: 25, stiffness: 350 }}
-                        className="w-[500px] max-w-[90vw] bg-[#1a1a1e]/90 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl relative overflow-hidden flex flex-col"
+                        className="w-[500px] max-w-[90vw] bg-[#1a1a1e] border border-white/10 rounded-xl shadow-2xl relative overflow-hidden flex flex-col"
                     >
                         <div className="flex items-center gap-3 p-4 border-b border-white/5">
                             <Command size={18} className="text-white/30" />
@@ -100,8 +100,9 @@ export function CommandPalette({ isOpen, onClose }: { isOpen: boolean, onClose: 
                             ))}
                         </div>
                     </motion.div>
-                </div>
-            )}
-        </AnimatePresence>
+                </div >
+            )
+            }
+        </AnimatePresence >
     );
 }

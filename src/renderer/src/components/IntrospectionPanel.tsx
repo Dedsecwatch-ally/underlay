@@ -56,11 +56,18 @@ export function IntrospectionPanel({ isOpen }: { isOpen: boolean }) {
     useEffect(() => {
         if (!isOpen) return;
 
+        let unsubNetwork: (() => void) | undefined;
+        let unsubPerf: (() => void) | undefined;
+
+        // Activate Monitoring
+        // @ts-ignore
+        if (window.electron.toggleNetworkMonitoring) window.electron.toggleNetworkMonitoring(true);
+
         // CDP Handling (Network)
         // @ts-ignore
         if (window.electron.onNetworkCDP) {
             // @ts-ignore
-            window.electron.onNetworkCDP((data) => {
+            unsubNetwork = window.electron.onNetworkCDP((data) => {
                 setLogs(prev => {
                     if (data.method === 'Network.requestWillBeSent') {
                         return [...prev.slice(-200), {
@@ -104,28 +111,37 @@ export function IntrospectionPanel({ isOpen }: { isOpen: boolean }) {
             });
         }
 
-        window.electron.onPerformanceUpdate((data) => {
-            setPerfData(data);
+        // @ts-ignore
+        if (window.electron.onPerformanceUpdate) {
+            // @ts-ignore
+            unsubPerf = window.electron.onPerformanceUpdate((data) => {
+                setPerfData(data);
 
-            // Update Memory History
-            setMemoryHistory(prev => {
-                const next = { ...prev };
-                data.metrics.forEach((m: any) => {
-                    const processInfo = data.processMap.find((p: any) => p.pid === m.pid);
-                    if (processInfo && processInfo.type === 'webview') {
-                        const cdp = (processInfo as any).cdp || {};
-                        const heap = cdp.JSHeapUsedSize ? (cdp.JSHeapUsedSize / 1024 / 1024) : 0;
-                        const rss = (m.memory.workingSetSize / 1024 / 1024);
+                // Update Memory History
+                setMemoryHistory(prev => {
+                    const next = { ...prev };
+                    data.metrics.forEach((m: any) => {
+                        const processInfo = data.processMap.find((p: any) => p.pid === m.pid);
+                        if (processInfo && processInfo.type === 'webview') {
+                            const cdp = (processInfo as any).cdp || {};
+                            const heap = cdp.JSHeapUsedSize ? (cdp.JSHeapUsedSize / 1024 / 1024) : 0;
+                            const rss = (m.memory.workingSetSize / 1024 / 1024);
 
-                        if (!next[m.pid]) next[m.pid] = [];
-                        next[m.pid] = [...next[m.pid].slice(-60), { timestamp: Date.now(), heap, rss }];
-                    }
+                            if (!next[m.pid]) next[m.pid] = [];
+                            next[m.pid] = [...next[m.pid].slice(-60), { timestamp: Date.now(), heap, rss }];
+                        }
+                    });
+                    return next;
                 });
-                return next;
             });
-        });
+        }
 
-        return () => { }
+        return () => {
+            if (unsubNetwork) unsubNetwork();
+            if (unsubPerf) unsubPerf();
+            // @ts-ignore
+            if (window.electron.toggleNetworkMonitoring) window.electron.toggleNetworkMonitoring(false);
+        }
     }, [isOpen]);
 
     const handleBlock = (url: string) => {

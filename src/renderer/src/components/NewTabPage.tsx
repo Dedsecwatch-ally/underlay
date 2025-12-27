@@ -1,51 +1,14 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, Compass, Activity, Youtube, Clapperboard, MonitorPlay, Tv, Sparkles, Github, Cloud, VenetianMask, Mail, HardDrive, FileText, Calendar, MapPin, Image as ImageIcon, Languages } from 'lucide-react';
+import { Search, Compass, Activity, Youtube, Clapperboard, MonitorPlay, Tv, Sparkles, Github, Cloud, VenetianMask, Mail, HardDrive, FileText, Calendar, MapPin, Image as ImageIcon, Languages, WifiOff, Twitter, Instagram, Facebook, ShoppingBag, Music, MessageCircle, Bot } from 'lucide-react';
 
 import { useBrowser } from '../context/BrowserContext';
+import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import { usePrivacyStats, formatBytes } from '../hooks/usePrivacyStats';
 
 // ... (keep wallpapers) ...
-// ULTRA PREMIUIM 4K WALLPAPERS - "Underlay Aesthetic"
-const CUSTOM_WALLPAPERS = [
-    // --- FEATURED AESTHETIC ---
-    'https://images.unsplash.com/photo-1614850523459-c2f4c699c52e?q=90&w=3840&auto=format&fit=crop', // Deep Pink/Blue Fluid
-    'https://images.unsplash.com/photo-1620121692029-d088224ddc74?q=90&w=3840&auto=format&fit=crop', // Dark Minimal Geometric
-    'https://images.unsplash.com/photo-1550684848-fac1c5b4e853?q=90&w=3840&auto=format&fit=crop', // Liquid Dark
-    'https://images.unsplash.com/photo-1634017839464-5c339ebe3cb4?q=90&w=3840&auto=format&fit=crop', // Minimalist 3D Geometry
-    'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=90&w=3840&auto=format&fit=crop', // Dark Oil
-
-    // --- SPACE & FUTURISM ---
-    'https://images.unsplash.com/photo-1451187580459-43490279c0fa?q=90&w=3840&auto=format&fit=crop', // Orbit View
-    'https://images.unsplash.com/photo-1534996858221-380b92700493?q=90&w=3840&auto=format&fit=crop', // Pool of Stars
-    'https://images.unsplash.com/photo-1614728853975-a093845c77e6?q=90&w=3840&auto=format&fit=crop', // Abstract Particles
-    'https://images.unsplash.com/photo-1446941611757-91d2c3bd3d45?q=90&w=3840&auto=format&fit=crop', // Earth Dark
-    'https://images.unsplash.com/photo-1462331940025-496dfbfc7564?q=90&w=3840&auto=format&fit=crop', // Galaxy Nebula
-
-    // --- SCENERY & NATURE (DARK MOODY) ---
-    'https://images.unsplash.com/photo-1472214103451-9374bd1c798e?q=90&w=3840&auto=format&fit=crop', // Epic Mountains
-    'https://images.unsplash.com/photo-1493976040374-85c8e12f0c0e?q=90&w=3840&auto=format&fit=crop', // Japan Night
-    'https://images.unsplash.com/photo-1504608524841-42fe6f032b4b?q=90&w=3840&auto=format&fit=crop', // Stormy Ocean
-    'https://images.unsplash.com/photo-1519681393798-7092873c6d0e?q=90&w=3840&auto=format&fit=crop', // Starry Forest
-    'https://images.unsplash.com/photo-1500375592092-40eb2168fd21?q=90&w=3840&auto=format&fit=crop', // Misty Lake
-
-    // --- CARS & MACHINES ---
-    'https://images.unsplash.com/photo-1532906616428-dab6a8775f98?q=90&w=3840&auto=format&fit=crop', // F1
-    'https://images.unsplash.com/photo-1544614471-32906d3f2b8c?q=90&w=3840&auto=format&fit=crop', // Supercar
-    'https://images.unsplash.com/photo-1614200179396-2bdb77ebf819?q=90&w=3840&auto=format&fit=crop', // Dark McLaren
-    'https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?q=90&w=3840&auto=format&fit=crop', // Cinematic Car
-
-    // --- CYBERPUNK & NEON ---
-    'https://images.unsplash.com/photo-1563089145681-4a51e712aadd?q=90&w=3840&auto=format&fit=crop', // Neon City
-    'https://images.unsplash.com/photo-1578632767115-351597cf2477?q=90&w=3840&auto=format&fit=crop', // Anime Street
-    'https://images.unsplash.com/photo-1555680202-c86f0e12f086?q=90&w=3840&auto=format&fit=crop', // Rainy Night
-    'https://images.unsplash.com/photo-1605218427306-022ba9515271?q=90&w=3840&auto=format&fit=crop', // Purple Grid
-
-    // --- ARCHITECTURE ---
-    'https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?q=90&w=3840&auto=format&fit=crop', // Skyscrapers
-    'https://images.unsplash.com/photo-1506869640319-fe1a24fd76dc?q=90&w=3840&auto=format&fit=crop', // Dark Bridge
-];
+import { CUSTOM_WALLPAPERS } from '../constants/wallpapers';
 
 // Animation Variants for Staggered Entrance
 const containerVariants = {
@@ -71,6 +34,7 @@ const itemVariants = {
 
 export function NewTabPage({ onNavigate, incognito }: { onNavigate: (url: string) => void; incognito?: boolean }) {
     const { state } = useBrowser();
+    const isOnline = useOnlineStatus();
     // const fps = useFPS(); (Removed)
     const stats = usePrivacyStats();
     const [currentTime, setCurrentTime] = useState(new Date());
@@ -86,30 +50,66 @@ export function NewTabPage({ onNavigate, incognito }: { onNavigate: (url: string
 
         const nextIndex = (lastIndex + 1) % CUSTOM_WALLPAPERS.length;
         localStorage.setItem('wallpaperIndex', nextIndex.toString());
+
+        // Notify global preloader
+        window.dispatchEvent(new CustomEvent('wallpaper-changed', { detail: { index: nextIndex } }));
+
         return CUSTOM_WALLPAPERS[nextIndex];
     });
 
-    // Preload Next Wallpaper Optimization (with cleanup)
-    useEffect(() => {
-        const currentIndex = CUSTOM_WALLPAPERS.indexOf(wallpaper);
-        const nextIndex = (currentIndex + 1) % CUSTOM_WALLPAPERS.length;
-
-        // Use a new Image for caching, but allow it to be garbage collected easily
-        const img = new Image();
-        img.src = CUSTOM_WALLPAPERS[nextIndex];
-
-        return () => {
-            img.onload = null;
-            img.onerror = null;
-            img.src = ''; // Detach to help GC
-        };
-    }, [wallpaper]);
     const [searchQuery, setSearchQuery] = useState('');
+    const [suggestions, setSuggestions] = useState<string[]>([]);
+    const [showSuggestions, setShowSuggestions] = useState(false);
+    const [selectedIndex, setSelectedIndex] = useState(-1);
+
+    useEffect(() => {
+        const fetchSuggestions = async () => {
+            const query = searchQuery.trim();
+            if (!query || query.startsWith('http') || query.includes('.') || query.length < 2) {
+                setSuggestions([]);
+                return;
+            }
+
+            try {
+                const data = await window.electron.search.suggest(query);
+                if (Array.isArray(data) && Array.isArray(data[1])) {
+                    setSuggestions(data[1].slice(0, 5));
+                }
+            } catch (e) {
+                // Silent fail
+            }
+        };
+
+        const timeoutId = setTimeout(() => {
+            fetchSuggestions();
+        }, 200);
+
+        return () => clearTimeout(timeoutId);
+    }, [searchQuery]);
 
     useEffect(() => {
         const timer = setInterval(() => setCurrentTime(new Date()), 1000);
         return () => clearInterval(timer);
     }, []);
+
+    const handleKeyDown = (e: React.KeyboardEvent) => {
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            setSelectedIndex(prev => (prev < suggestions.length - 1 ? prev + 1 : prev));
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            setSelectedIndex(prev => (prev > -1 ? prev - 1 : prev));
+        } else if (e.key === 'Escape') {
+            setShowSuggestions(false);
+        } else if (e.key === 'Enter') {
+            // Let form submit handle it, but update query if selected
+            if (selectedIndex >= 0) {
+                e.preventDefault();
+                const url = suggestions[selectedIndex];
+                onNavigate(`https://google.com/search?q=${encodeURIComponent(url)}`);
+            }
+        }
+    };
 
     const handleSearch = (e: React.FormEvent) => {
         e.preventDefault();
@@ -141,38 +141,21 @@ export function NewTabPage({ onNavigate, incognito }: { onNavigate: (url: string
                 </div>
             ) : (
                 // BREATHING WALLPAPER LAYER (Normal)
-                <AnimatePresence mode='popLayout'>
-                    <motion.div
-                        key={wallpaper}
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        transition={{ duration: 1 }}
-                        className="absolute inset-0 z-0"
-                    >
-                        <motion.img
-                            src={wallpaper}
-                            alt="Wallpaper"
-                            decoding="async"
-                            initial={{ scale: 1.05, filter: 'brightness(0.5)' }}
-                            animate={{
-                                scale: 1,
-                                filter: ['brightness(0.8)', 'brightness(1)']
-                            }}
-                            transition={{
-                                scale: { duration: 6, ease: "easeOut" },
-                                filter: { duration: 4, repeat: Infinity, repeatType: "reverse", ease: "easeInOut" }
-                            }}
-                            className="w-full h-full object-cover"
-                            onError={(e) => {
-                                // Fallback if image fails
-                                e.currentTarget.src = CUSTOM_WALLPAPERS[0];
-                            }}
-                        />
-                        {/* Cinematic Vignette */}
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-black/60 opacity-80" />
-                    </motion.div>
-                </AnimatePresence>
+                // STATIC WALLPAPER LAYER (Normal)
+                <div className="absolute inset-0 z-0">
+                    <img
+                        src={wallpaper}
+                        alt="Wallpaper"
+                        draggable={false}
+                        className="w-full h-full object-cover select-none pointer-events-none"
+                        onError={(e) => {
+                            // Fallback if image fails
+                            e.currentTarget.src = CUSTOM_WALLPAPERS[0];
+                        }}
+                    />
+                    {/* Cinematic Vignette */}
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/10 to-black/30 opacity-40 pointer-events-none select-none" />
+                </div>
             )}
 
 
@@ -193,19 +176,11 @@ export function NewTabPage({ onNavigate, incognito }: { onNavigate: (url: string
 
 
             {/* CENTER CONTENT CONTAINER */}
-            <motion.div
-                className="z-10 relative flex-1 flex flex-col items-center justify-center -mt-16 w-full"
-                variants={containerVariants}
-                initial="hidden"
-                animate="visible"
-            >
+            <div className="z-10 relative flex-1 flex flex-col items-center justify-center -mt-16 w-full">
 
 
                 {/* CENTER CONTENT */}
-                <motion.div
-                    variants={itemVariants}
-                    className="flex flex-col items-center justify-center mb-8 text-center"
-                >
+                <div className="flex flex-col items-center justify-center mb-8 text-center">
                     {incognito ? (
                         <div className="flex flex-col items-center gap-6 mb-4">
                             <div className="w-24 h-24 bg-zinc-800 rounded-full flex items-center justify-center mb-2 shadow-2xl border border-white/5">
@@ -221,88 +196,80 @@ export function NewTabPage({ onNavigate, incognito }: { onNavigate: (url: string
                         </div>
                     ) : (
                         <>
-                            <h1 className="text-6xl font-light tracking-tighter text-transparent bg-clip-text bg-gradient-to-b from-white/90 via-white/50 to-white/10 backdrop-blur-sm select-none">
+                            <h1 className="text-6xl font-light tracking-tighter text-white select-none drop-shadow-lg">
                                 {currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                             </h1>
-                            <div className="text-[10px] font-semibold tracking-[0.8em] uppercase text-white/30 mt-2 mix-blend-plus-lighter">
+                            <div className="text-[10px] font-semibold tracking-[0.8em] uppercase text-white/80 mt-2 drop-shadow-md">
                                 {currentTime.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}
                             </div>
                         </>
                     )}
-                </motion.div>
+                </div>
 
-                {/* FAVORITES ROW - Smaller now */}
-                <motion.div variants={itemVariants} className="flex gap-6 mb-12 flex-wrap justify-center max-w-3xl">
+                {/* FAVORITES ROW - Expanded Grid */}
+                <div className="flex flex-wrap gap-6 mb-12 justify-center max-w-4xl px-4">
                     <FavoriteIcon
-                        icon={<Github strokeWidth={1.5} size={20} />}
+                        icon={<Github strokeWidth={1.5} size={28} />}
                         label="GitHub"
                         url="https://github.com"
                         onClick={onNavigate}
-                        color="text-white/70 group-hover:text-white"
-                        glowColor="group-hover:shadow-[0_0_40px_rgba(255,255,255,0.3)]"
+                        bgColor="bg-[#24292e]"
                     />
                     <FavoriteIcon
-                        icon={<Cloud strokeWidth={1.5} size={20} />}
+                        icon={<Cloud strokeWidth={1.5} size={28} />}
                         label="Vercel"
                         url="https://vercel.com"
                         onClick={onNavigate}
-                        color="text-white/70 group-hover:text-white"
-                        glowColor="group-hover:shadow-[0_0_40px_rgba(255,255,255,0.3)]"
+                        bgColor="bg-black"
                     />
                     <FavoriteIcon
-                        icon={<Youtube strokeWidth={1.5} size={20} />}
+                        icon={<Youtube strokeWidth={1.5} size={28} />}
                         label="YouTube"
                         url="https://youtube.com"
                         onClick={onNavigate}
-                        color="text-white/70 group-hover:text-red-500"
-                        glowColor="group-hover:shadow-[0_0_40px_rgba(239,68,68,0.4)]"
+                        bgColor="bg-[#FF0000]"
                     />
                     <FavoriteIcon
-                        icon={<Clapperboard strokeWidth={1.5} size={20} />}
+                        icon={<Clapperboard strokeWidth={1.5} size={28} />}
                         label="Netflix"
                         url="https://netflix.com"
                         onClick={onNavigate}
-                        color="text-white/70 group-hover:text-red-600"
-                        glowColor="group-hover:shadow-[0_0_40px_rgba(220,38,38,0.4)]"
+                        bgColor="bg-[#E50914]"
                     />
                     <FavoriteIcon
-                        icon={<MonitorPlay strokeWidth={1.5} size={20} />}
+                        icon={<MonitorPlay strokeWidth={1.5} size={28} />}
                         label="Prime Video"
                         url="https://primevideo.com"
                         onClick={onNavigate}
-                        color="text-white/70 group-hover:text-sky-400"
-                        glowColor="group-hover:shadow-[0_0_40px_rgba(56,189,248,0.4)]"
+                        bgColor="bg-[#00A8E1]"
                     />
                     <FavoriteIcon
-                        icon={<Tv strokeWidth={1.5} size={20} />}
+                        icon={<Tv strokeWidth={1.5} size={28} />}
                         label="Hotstar"
                         url="https://hotstar.com"
                         onClick={onNavigate}
-                        color="text-white/70 group-hover:text-blue-500"
-                        glowColor="group-hover:shadow-[0_0_40px_rgba(59,130,246,0.4)]"
+                        bgColor="bg-[#133ba2]"
                     />
                     <FavoriteIcon
-                        icon={<Sparkles strokeWidth={1.5} size={20} />}
+                        icon={<Sparkles strokeWidth={1.5} size={28} />}
                         label="Gemini"
                         url="https://gemini.google.com"
                         onClick={onNavigate}
-                        color="text-white/70 group-hover:text-fuchsia-400"
-                        glowColor="group-hover:shadow-[0_0_40px_rgba(232,121,249,0.4)]"
+                        bgColor="bg-gradient-to-br from-[#4E86F1] to-[#9B62E0]"
                     />
-                </motion.div>
+                </div>
 
                 {/* HERO SEARCH BAR - Smaller, tighter */}
-                <motion.form
-                    variants={itemVariants}
+                <form
                     onSubmit={handleSearch}
-                    className="w-full max-w-2xl px-6 relative group"
+                    className="w-full max-w-2xl px-6 relative group non-draggable"
                 >
-                    {/* Glowing Blur Behind - VIBRANT */}
-                    <div className="absolute -inset-1 bg-gradient-to-r from-cyan-500/20 via-fuchsia-500/20 to-blue-500/20 rounded-full blur-2xl opacity-0 group-focus-within:opacity-100 transition-opacity duration-1000" />
+                    {/* Glowing Blur Behind - REMOVED for max performance */}
+                    {/* <div className="absolute -inset-1 bg-gradient-to-r from-cyan-500/20 via-fuchsia-500/20 to-blue-500/20 rounded-full blur-xl opacity-0 group-focus-within:opacity-100 transition-opacity duration-1000" /> */}
 
                     <div className="relative">
-                        {/* Glass Background - Opacity 20% */}
-                        <div className="absolute inset-0 bg-white/10 backdrop-blur-3xl rounded-full border border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.2)] transition-all duration-500 group-focus-within:bg-white/10 group-focus-within:border-white/20 group-focus-within:shadow-[0_0_60px_rgba(34,211,238,0.15)]" />
+                        {/* Glass Background - Optimization: Removed blur entirely, using solid semi-transparent */}
+                        <div className="absolute inset-0 bg-black/40 border border-white/10 rounded-full shadow-lg transition-colors duration-200 group-focus-within:bg-black/60 group-focus-within:border-white/30" />
 
                         <div className="absolute inset-y-0 left-5 flex items-center pointer-events-none text-white/30 group-focus-within:text-white transition-colors duration-500">
                             <Search size={18} strokeWidth={1.5} />
@@ -311,38 +278,67 @@ export function NewTabPage({ onNavigate, incognito }: { onNavigate: (url: string
                         <input
                             type="text"
                             value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
+                            onChange={(e) => {
+                                setSearchQuery(e.target.value);
+                                setShowSuggestions(true);
+                            }}
+                            onFocus={() => setShowSuggestions(true)}
+                            onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
+                            onKeyDown={handleKeyDown}
                             placeholder="Type a URL or search..."
-                            className="relative w-full bg-transparent border-none py-4 pl-12 pr-6 text-lg text-white placeholder-white/50 outline-none font-light tracking-wide rounded-full"
+                            className="relative w-full bg-transparent border-none py-4 pl-12 pr-6 text-lg text-white placeholder-white/50 outline-none font-light tracking-wide rounded-full select-text"
                             style={{ textShadow: '0 2px 10px rgba(0,0,0,0.5)' }}
                             autoFocus
                         />
+
+                        {/* Suggestions Dropdown */}
+                        {showSuggestions && suggestions.length > 0 && (
+                            <div className="absolute top-full left-0 right-0 mt-2 bg-black/80 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl py-2 z-50 overflow-hidden non-draggable">
+                                {suggestions.map((sug, i) => (
+                                    <div
+                                        key={i}
+                                        className={`px-6 py-3 text-sm cursor-pointer flex items-center gap-3 transition-colors ${i === selectedIndex ? 'bg-white/10 text-white' : 'hover:bg-white/5 text-white/70 hover:text-white'}`}
+                                        onMouseDown={(e) => {
+                                            e.preventDefault();
+                                            onNavigate(`https://google.com/search?q=${encodeURIComponent(sug)}`);
+                                        }}
+                                    >
+                                        <Search size={14} className="opacity-50" />
+                                        <span>{sug}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
                     </div>
 
                     {/* Helper Text */}
                     <div className="absolute top-full left-0 w-full text-center mt-3 opacity-0 group-focus-within:opacity-100 transition-opacity duration-700 delay-100">
                         <span className="text-[10px] uppercase tracking-[0.3em] text-white/30">Press Enter to Search</span>
                     </div>
-                </motion.form>
-            </motion.div>
+
+                    {!isOnline && (
+                        <div className="absolute top-full left-0 w-full flex items-center justify-center mt-8">
+                            <div className="flex items-center gap-2 px-4 py-2 bg-red-500/10 border border-red-500/20 rounded-full">
+                                <WifiOff size={14} className="text-red-400" />
+                                <span className="text-xs font-medium text-red-200">Offline Mode</span>
+                            </div>
+                        </div>
+                    )}
+                </form>
+            </div>
 
             {/* BOTTOM WIDGETS */}
             {!incognito && (
                 <div className="z-10 relative px-12 pb-6 flex items-end justify-between w-full h-24">
 
                     {/* PRIVACY STATS BAR (CENTER) */}
-                    <motion.div
-                        initial={{ y: 20, opacity: 0, scale: 0.95 }}
-                        animate={{ y: 0, opacity: 1, scale: 1 }}
-                        transition={{ delay: 1.6, duration: 0.8 }}
-                        className="flex items-center gap-8 px-8 py-3 bg-black/40 backdrop-blur-2xl rounded-2xl border border-white/5 mx-auto"
-                    >
+                    <div className="flex items-center gap-8 px-8 py-3 bg-black/40 backdrop-blur-2xl rounded-2xl border border-white/5 mx-auto">
                         <StatItem label="Bandwidth Saved" value={formatBytes(stats.bandwidthSavedBytes)} color="text-cyan-400" />
                         <div className="w-[1px] h-8 bg-white/10" />
                         <StatItem label="Trackers Blocked" value={stats.trackersBlocked.toLocaleString()} color="text-red-400" />
                         <div className="w-[1px] h-8 bg-white/10" />
                         <StatItem label="Ads Blocked" value={stats.adsBlocked.toLocaleString()} color="text-yellow-400" />
-                    </motion.div>
+                    </div>
 
                 </div>
             )}
@@ -350,24 +346,22 @@ export function NewTabPage({ onNavigate, incognito }: { onNavigate: (url: string
     );
 }
 
-const FavoriteIcon = React.memo(function FavoriteIcon({ icon, label, url, onClick, color = "text-white", glowColor = "shadow-white/10" }: { icon: any, label: string, url: string, onClick: (url: string) => void, color?: string, glowColor?: string }) {
+const FavoriteIcon = React.memo(function FavoriteIcon({ icon, label, url, onClick, bgColor = "bg-zinc-800", glowColor = "shadow-white/10" }: { icon: any, label: string, url: string, onClick: (url: string) => void, bgColor?: string, glowColor?: string }) {
     return (
-        <motion.button
-            whileHover={{ y: -5, scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
+        <button
             onClick={() => onClick(url)}
-            className="group flex flex-col items-center gap-3 relative"
+            className="group flex flex-col items-center gap-3 relative non-draggable"
         >
 
-            <div className={`w-16 h-16 rounded-[20px] bg-gradient-to-br from-white/10 to-white/5 border border-white/10 backdrop-blur-2xl flex items-center justify-center shadow-[0_8px_32px_rgba(0,0,0,0.3)] transition-all duration-500 group-hover:bg-white/10 group-hover:border-white/20 ${color} ${glowColor}`}>
+            <div className={`w-16 h-16 rounded-[20px] ${bgColor} border border-white/10 flex items-center justify-center transition-transform duration-200 group-hover:scale-105 shadow-lg text-white`}>
                 {icon}
             </div>
 
-            {/* Label with shiny hover effect */}
-            <span className="text-[10px] font-medium tracking-widest uppercase text-white/30 group-hover:text-white transition-colors duration-300 absolute -bottom-6 opacity-0 group-hover:opacity-100 group-hover:bottom-[-1.5rem]">
+            {/* Label */}
+            <span className="text-[10px] font-medium tracking-widest uppercase text-white/50 group-hover:text-white transition-colors duration-200 absolute -bottom-6 opacity-0 group-hover:opacity-100 group-hover:bottom-[-1.5rem]">
                 {label}
             </span>
-        </motion.button>
+        </button>
     )
 });
 
@@ -450,15 +444,15 @@ function CryptoItem({ label, value }: { label: string, value: number }) {
 function GoogleAppsWidget({ onNavigate }: { onNavigate: (url: string) => void }) {
     const [expanded, setExpanded] = useState(false);
     const apps = [
-        { name: 'Google', url: 'https://google.com', icon: <Search size={16} /> },
-        { name: 'Gmail', url: 'https://mail.google.com', icon: <Mail size={16} /> },
-        { name: 'YouTube', url: 'https://youtube.com', icon: <Youtube size={16} /> },
-        { name: 'Drive', url: 'https://drive.google.com', icon: <HardDrive size={16} /> },
-        { name: 'Docs', url: 'https://docs.google.com', icon: <FileText size={16} /> },
-        { name: 'Calendar', url: 'https://calendar.google.com', icon: <Calendar size={16} /> },
-        { name: 'Maps', url: 'https://maps.google.com', icon: <MapPin size={16} /> },
-        { name: 'Photos', url: 'https://photos.google.com', icon: <ImageIcon size={16} /> },
-        { name: 'Translate', url: 'https://translate.google.com', icon: <Languages size={16} /> },
+        { name: 'Google', url: 'https://google.com', icon: <Search size={20} />, color: 'text-blue-400' },
+        { name: 'Gmail', url: 'https://mail.google.com', icon: <Mail size={20} />, color: 'text-red-500' },
+        { name: 'YouTube', url: 'https://youtube.com', icon: <Youtube size={20} />, color: 'text-red-600' },
+        { name: 'Drive', url: 'https://drive.google.com', icon: <HardDrive size={20} />, color: 'text-green-500' },
+        { name: 'Docs', url: 'https://docs.google.com', icon: <FileText size={20} />, color: 'text-blue-500' },
+        { name: 'Calendar', url: 'https://calendar.google.com', icon: <Calendar size={20} />, color: 'text-blue-400' },
+        { name: 'Maps', url: 'https://maps.google.com', icon: <MapPin size={20} />, color: 'text-green-400' },
+        { name: 'Photos', url: 'https://photos.google.com', icon: <ImageIcon size={20} />, color: 'text-yellow-500' },
+        { name: 'Translate', url: 'https://translate.google.com', icon: <Languages size={20} />, color: 'text-blue-300' },
     ];
 
     return (
@@ -469,7 +463,7 @@ function GoogleAppsWidget({ onNavigate }: { onNavigate: (url: string) => void })
                         initial={{ scale: 0.9, opacity: 0, originX: 0, originY: 0 }}
                         animate={{ scale: 1, opacity: 1 }}
                         exit={{ scale: 0.9, opacity: 0 }}
-                        className="bg-black/60 backdrop-blur-xl border border-white/10 rounded-2xl p-4 shadow-2xl relative"
+                        className="bg-black/95 border border-white/20 rounded-2xl p-4 shadow-2xl relative non-draggable"
                     >
                         {/* Close Button / Header */}
                         <div className="flex items-center justify-between mb-3 pb-2 border-b border-white/5">
@@ -487,9 +481,11 @@ function GoogleAppsWidget({ onNavigate }: { onNavigate: (url: string) => void })
                                 <button
                                     key={app.name}
                                     onClick={() => { onNavigate(app.url); setExpanded(false); }}
-                                    className="w-12 h-12 flex items-center justify-center rounded-xl bg-white/5 hover:bg-white/20 hover:scale-110 transition-all text-white/70 hover:text-white group relative shadow-lg shadow-black/20"
+                                    className="w-12 h-12 flex items-center justify-center rounded-xl bg-white/5 hover:bg-white/10 hover:scale-110 transition-all group relative shadow-lg shadow-black/20"
                                 >
-                                    {app.icon}
+                                    <div className={app.color + " drop-shadow-md"}>
+                                        {app.icon}
+                                    </div>
 
                                     {/* Tooltip Pop-up */}
                                     <div className="absolute -bottom-8 left-1/2 -translate-x-1/2 px-2 py-1 bg-black/90 text-white text-[10px] font-bold rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none border border-white/10 shadow-xl z-10 translate-y-2 group-hover:translate-y-0 duration-200">
@@ -504,7 +500,7 @@ function GoogleAppsWidget({ onNavigate }: { onNavigate: (url: string) => void })
                     <motion.button
                         layoutId="google-folder"
                         onClick={() => setExpanded(true)}
-                        className="w-14 h-14 bg-white/10 backdrop-blur-md border border-white/10 rounded-2xl flex items-center justify-center hover:bg-white/20 hover:scale-105 transition-all group shadow-xl"
+                        className="w-14 h-14 bg-[#313131] border border-white/10 rounded-2xl flex items-center justify-center hover:bg-[#313131]/80 hover:scale-105 transition-all group shadow-xl non-draggable"
                         whileTap={{ scale: 0.95 }}
                         initial={{ opacity: 0, scale: 0.8 }}
                         animate={{ opacity: 1, scale: 1 }}

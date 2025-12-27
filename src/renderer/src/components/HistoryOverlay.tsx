@@ -42,7 +42,7 @@ export function HistoryOverlay({ isOpen, onClose }: { isOpen: boolean, onClose: 
                     initial={{ opacity: 0, x: -50 }}
                     animate={{ opacity: 1, x: 0 }}
                     exit={{ opacity: 0, x: -50 }}
-                    className="absolute top-10 bottom-0 left-0 w-[400px] bg-[#1a1a1e]/95 backdrop-blur-xl border-r border-white/10 z-40 flex flex-col shadow-2xl"
+                    className="absolute top-10 bottom-0 left-0 w-[400px] bg-[#1a1a1e] border-r border-white/10 z-40 flex flex-col shadow-2xl"
                 >
                     <div className="h-12 border-b border-white/10 flex items-center px-4 gap-2">
                         <div className="flex bg-black/20 p-1 rounded-lg">
@@ -113,10 +113,22 @@ export function HistoryOverlay({ isOpen, onClose }: { isOpen: boolean, onClose: 
                                                         onClose();
                                                     }}
                                                 >
-                                                    <div className="text-sm text-white/90 truncate">{entry.title || entry.url}</div>
-                                                    <div className="text-[10px] text-white/40 truncate flex justify-between">
-                                                        <span>{new URL(entry.url).hostname}</span>
-                                                        <span>{new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                                    <div className="flex-1 min-w-0">
+                                                        <div className="text-sm text-white/90 truncate">{entry.title || entry.url}</div>
+                                                        <div className="text-[10px] text-white/40 truncate flex justify-between mr-2">
+                                                            <span>{new URL(entry.url).hostname}</span>
+                                                            <span>{new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                                        </div>
+                                                    </div>
+                                                    <div
+                                                        className="opacity-0 group-hover:opacity-100 p-1.5 hover:bg-white/10 rounded transition-all text-white/30 hover:text-red-400"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            dispatch({ type: 'REMOVE_HISTORY_ITEM', payload: { id: entry.id } });
+                                                        }}
+                                                        title="Delete from history"
+                                                    >
+                                                        <Trash2 size={12} />
                                                     </div>
                                                 </div>
                                             ))}

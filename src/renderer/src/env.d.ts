@@ -27,6 +27,10 @@ interface Window {
             getPermissions: () => Promise<any[]>;
             revoke: (origin: string, permission: string) => void;
             onSecurityStateChange: (callback: (data: any) => void) => () => void;
+            sendPermissionResponse: (id: number, allow: boolean) => void;
+        };
+        ui: {
+            onContextMenu: (callback: (data: any) => void) => () => void;
         };
         privacy: {
             onTrackerBlocked: (callback: (data: any) => void) => () => void;
@@ -47,8 +51,15 @@ interface Window {
         sync: {
             importBookmarks: (browser: 'chrome' | 'brave' | 'edge') => Promise<Array<{ title: string; url: string }>>;
         };
+        search: {
+            suggest: (query: string) => Promise<any>;
+        };
         shell: {
             showItem: (path: string) => void;
+            openExternal: (url: string) => Promise<void>;
+        };
+        cpp: {
+            getMessage: () => Promise<string>;
         };
     }
 }

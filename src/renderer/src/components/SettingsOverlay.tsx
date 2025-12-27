@@ -15,7 +15,7 @@ type SettingsTab =
     | 'accessibility' | 'system' | 'reset' | 'bookmarks';
 
 const SettingSection = ({ title, children }: { title: string, children: React.ReactNode }) => (
-    <div className="bg-white/5 rounded-xl border border-white/5 overflow-hidden mb-6 backdrop-blur-sm">
+    <div className="bg-[#1a1a1e] rounded-xl border border-white/5 overflow-hidden mb-6">
         <div className="px-6 py-4 border-b border-white/5 bg-white/[0.02]">
             <h3 className="text-white/90 font-medium tracking-wide text-sm uppercase opacity-70">{title}</h3>
         </div>

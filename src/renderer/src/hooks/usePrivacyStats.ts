@@ -60,15 +60,17 @@ export function usePrivacyStats() {
             });
         };
 
-        if (window.electron && (window.electron as any).ipcRenderer) {
-            (window.electron as any).ipcRenderer.on('privacy:tracker-blocked', handleBlocked);
+        // @ts-ignore
+        if (window.electron && window.electron.privacy && window.electron.privacy.onTrackerBlocked) {
+            // @ts-ignore
+            const unsub = window.electron.privacy.onTrackerBlocked((data: any) => {
+                handleBlocked(null, data);
+            });
+            return () => {
+                if (unsub) unsub();
+            };
         }
-
-        return () => {
-            if (window.electron && (window.electron as any).ipcRenderer) {
-                (window.electron as any).ipcRenderer.removeListener('privacy:tracker-blocked', handleBlocked);
-            }
-        };
+        return () => { };
     }, []);
 
     // Navigation-based updates (Simulation for "Scanning" effect on new usage)

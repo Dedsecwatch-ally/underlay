@@ -3,9 +3,68 @@ import path from 'path';
 import fs from 'fs';
 import os from 'os';
 import { join } from 'path';
+import bindings from 'bindings';
+
+const addon = bindings('addon');
 
 // Prevent garbage collection
 let mainWindow: BrowserWindow | null = null;
+
+// Privacy & Security Shield Configuration (AdBlocker)
+const { ElectronBlocker } = require('@cliqz/adblocker-electron');
+const fetch = require('cross-fetch');
+let adBlocker: any = null;
+
+// C++ Engine
+const engine = new addon.EngineCore();
+engine.addBlockPattern('tracker');
+engine.addBlockPattern('analytics');
+
+
+// Network Monitoring State
+let isNetworkMonitoringActive = false;
+
+// IPC PERFORMANCE BATCHING
+// We queue blocked requests and send them in bursts to prevent freezing the UI thread
+// with hundreds of IPC messages per second.
+let blockedRequestQueue: any[] = [];
+let blockedRequestTimer: NodeJS.Timeout | null = null;
+
+const flushBlockedRequests = () => {
+    if (blockedRequestQueue.length === 0) return;
+    if (mainWindow && !mainWindow.isDestroyed()) {
+        // Send batch
+        mainWindow.webContents.send('privacy:tracker-blocked-batch', blockedRequestQueue);
+    }
+    blockedRequestQueue = [];
+    blockedRequestTimer = null;
+};
+
+const queueBlockedRequest = (data: any) => {
+    blockedRequestQueue.push(data);
+    if (!blockedRequestTimer) {
+        // Throttle to once every 1 second (1000ms) for smoothness
+        blockedRequestTimer = setTimeout(flushBlockedRequests, 1000);
+    }
+};
+
+// In-memory permission store for this session
+const activePermissions: Array<{
+    id: number;
+    origin: string;
+    permission: string;
+    status: 'granted' | 'denied';
+}> = [];
+
+
+ipcMain.on('network:toggle-monitoring', (_e, active) => {
+    isNetworkMonitoringActive = active;
+});
+
+ElectronBlocker.fromPrebuiltAdsAndTracking(fetch).then((blocker: any) => {
+    adBlocker = blocker;
+    console.log('[AdBlock] Engine ready');
+});
 
 function createWindow() {
     const isMac = process.platform === 'darwin';
@@ -13,6 +72,7 @@ function createWindow() {
     mainWindow = new BrowserWindow({
         width: 1200,
         height: 800,
+        frame: false, // Ensure frameless for better movement control
         backgroundColor: '#0f0f11', // Matches 'underlay-bg'
         webPreferences: {
             preload: join(__dirname, '../preload/index.js'),
@@ -21,11 +81,13 @@ function createWindow() {
             sandbox: true,
             webviewTag: true // Enabled for initial prototype
         },
+        movable: true,
+        enableLargerThanScreen: true, // Allow spanning across dual screens
         titleBarStyle: isMac ? 'hiddenInset' : 'hidden', // Native mac vs generic hidden
         titleBarOverlay: isMac ? false : {
             color: '#0f0f11',
             symbolColor: '#ffffff',
-            height: 40 // Matches the h-10 titlebar height
+            height: 56 // Matches the h-14 titlebar height
         },
     });
 
@@ -39,13 +101,58 @@ function createWindow() {
         mainWindow.loadFile(join(__dirname, '../renderer/index.html'));
     }
 
+    // Maximize on startup (Cover screen till notch/menu bar)
+    mainWindow.maximize();
+    mainWindow.show();
+
     // Handle window closed
     mainWindow.on('closed', () => {
         mainWindow = null;
     });
 }
 
-// App lifecycle
+// Lifecycle
+// ENFORCE SANDBOX (Chrome-like security)
+app.enableSandbox();
+
+// Optimized Process Model
+// Force GPU rasterization for performance and separation
+app.commandLine.appendSwitch('enable-gpu-rasterization');
+app.commandLine.appendSwitch('enable-zero-copy');
+app.commandLine.appendSwitch('ignore-gpu-blocklist'); // Ensure GPU process is always used if possible
+
+// RENDERER OPTIMIZATION (LayoutNG, Slimming Paint, OOPIF)
+app.commandLine.appendSwitch('enable-blink-features', 'LayoutNG'); // Removed SlimmingPaintV2 as it can cause input issues
+app.commandLine.appendSwitch('site-per-process'); // Strict OOPIF
+app.commandLine.appendSwitch('enable-features', 'VizDisplayCompositor,OverlayScrollbar');
+
+// JS PERFORMANCE (V8 Tuning)
+// Enforce strict optimizations and future features for speed
+// app.commandLine.appendSwitch('js-flags', '--sparkplug');
+// --sparkplug: fast non-optimizing compiler (baseline)
+// --no-lazy: compile everything immediately (tradeoff: startup speed vs execution speed) -> maybe dangerous for startup, let's stick to safer defaults + sparkplug
+// improving startup: remove --no-lazy. Keep sparkplug.
+
+// NETWORK OPTIMIZATION (Speed & Modern Protocols)
+app.commandLine.appendSwitch('enable-quic'); // Enable HTTP/3 (QUIC)
+// Enforce Network Service + DNS Prediction + DoH + Caching Strategies
+app.commandLine.appendSwitch('enable-features', 'NetworkService,NetworkServiceInProcess,NetworkPrediction,NoStatePrefetch,BackForwardCache,ThirdPartyStoragePartitioning,PartitionedCookies');
+
+// DNS OPTIMIZATION
+app.commandLine.appendSwitch('dns-over-https-mode', 'automatic');
+app.commandLine.appendSwitch('dns-over-https-templates', 'https://chrome.cloudflare-dns.com/dns-query');
+app.commandLine.appendSwitch('blink-settings', 'dnsPrefetchingEnabled=true');
+
+// WEB STANDARDS (Graphics & Media)
+app.commandLine.appendSwitch('enable-unsafe-webgpu'); // Ensure WebGPU is accessible
+app.commandLine.appendSwitch('enable-features', 'Vulkan'); // Cross-platform graphics
+app.commandLine.appendSwitch('no-verify-widevine-cdm'); // Allow Widevine for development (OTT)
+
+// SMART TAB LIFECYCLE (Memory Compression)
+app.commandLine.appendSwitch('enable-features', 'EmptyNormalWorkletsInWorkerThread,SeparateVP9AndImageWorkers,InputPredictorTypeExperiment'); // Removed ResamplingInputEvents
+app.commandLine.appendSwitch('enable-gpu-memory-buffer-compositor-resources');
+// app.commandLine.appendSwitch('enable-reduce-image-loading-memory-footprint-in-background');
+
 app.whenReady().then(() => {
     // Handle Downloads
     session.defaultSession.on('will-download', (event: any, item: any, webContents: any) => {
@@ -81,6 +188,7 @@ app.whenReady().then(() => {
                     });
                 }
             } else if (state === 'progressing') {
+
                 if (item.isPaused()) {
                     if (mainWindow) {
                         mainWindow.webContents.send('download:update', {
@@ -116,386 +224,177 @@ app.whenReady().then(() => {
         });
     });
 
-    // SPOOF USER AGENT (Standard Chrome on Mac)
-    session.defaultSession.setUserAgent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+    // Unified Session Configuration
+    const configureSession = (sess: Electron.Session) => {
+        // SPOOF USER AGENT (Standard Chrome on Mac)
+        // Updated to Chrome 131 to avoid "Browser not supported" on Google Services
+        sess.setUserAgent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36");
 
-    // Privacy & Security Shield Configuration
-    // Privacy & Security Shield Configuration
-    let isPrivacyShieldActive = false;
-
-    // Comprehensive "Hacker" Blocklist
-    const BLOCKLIST = {
-        ads: [
-            'doubleclick.net', 'adservice.google.com', 'googlesyndication.com', 'googleads.g.doubleclick.net',
-            'pubads.g.doubleclick.net', 'adnxs.com', 'criteo.com', 'rubiconproject.com', 'openx.net',
-            'ads-twitter.com', 'amazon-adsystem.com', 'facebook.com/tr/', 'bingads.microsoft.com',
-            'taboola.com', 'outbrain.com', 'adroll.com', 'ads.yahoo.com', 'moatads.com'
-        ],
-        trackers: [
-            'google-analytics.com', 'googletagmanager.com', 'facebook.net', 'connect.facebook.net',
-            'hotjar.com', 'segment.io', 'newrelic.com', 'mixpanel.com', 'crazyegg.com', 'bugsnag.com',
-            'sentry.io', 'clarity.ms', 'fullstory.com', 'optimizely.com', 'tealium.com'
-        ],
-        miners: [
-            'coinhive.com', 'coin-hive.com', 'jsecoin.com', 'miner.js', 'cryptoloot.pro',
-            'webminepool.com', 'deepminer.org', 'coinimp.com', 'minr.pw'
-        ],
-        youtube: [
-            'youtube.com/pagead', 'youtube.com/ptracking', 'youtube.com/api/stats/ads',
-            'youtube.com/api/stats/qoe', 'youtube.com/youtubei/v1/log_event',
-            'googleads.g.doubleclick.net/pagead/id', 'static.doubleclick.net', 'google.com/pagead'
-        ]
-    };
-
-    // Flatten for quick lookup
-    const ALL_BLOCK_PATTERNS = [...BLOCKLIST.ads, ...BLOCKLIST.trackers, ...BLOCKLIST.miners, ...BLOCKLIST.youtube];
-
-    // Pop-up Blocking Logic
-    if (mainWindow) {
-        mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-            if (url.startsWith('about:blank')) return { action: 'allow' }; // Allow internal
-
-            // Basic pop-up heuristic: If it's not a direct user navigation (difficult to detect purely here, but we can filter aggressively)
-            // For this "Privacy Browser", we default to blocking popups unless we explicitly allow specific flows.
-            console.log(`[Popup Blocked] ${url}`);
-
-            // Notify UI of blocked popup
-            if (mainWindow && !mainWindow.isDestroyed()) {
-                mainWindow.webContents.send('privacy:popup-blocked', {
-                    url,
-                    timestamp: Date.now()
-                });
-            }
-
-            return { action: 'deny' };
-        });
-    }
-
-    // Network Monitoring & Privacy Shield
-    session.defaultSession.webRequest.onBeforeRequest((details: any, callback: any) => {
-        if (mainWindow && !mainWindow.isDestroyed()) {
-
-            // 0. Whitelist Main Frame Navigations (Ensure top-level page loads always work)
-            if (details.resourceType === 'mainFrame') {
-                return callback({});
-            }
-
-            // 1. Ad & Threat Blocking
-            if (isPrivacyShieldActive) {
-                const url = details.url.toLowerCase();
-                const matchedRule = ALL_BLOCK_PATTERNS.find(pattern => url.includes(pattern));
-
-                if (matchedRule) {
-                    // console.log(`[Shield Active] Blocked: ${url}`);
-
-                    // Categorize the block for the UI
-                    let type = 'Ad';
-                    if (BLOCKLIST.trackers.some(p => url.includes(p))) type = 'Tracker';
-                    else if (BLOCKLIST.miners.some(p => url.includes(p))) type = 'Miner';
-                    else if (BLOCKLIST.youtube.some(p => url.includes(p))) type = 'YouTube Ad';
-
-                    mainWindow.webContents.send('privacy:tracker-blocked', {
-                        url: details.url,
-                        domain: new URL(details.url).hostname,
-                        type: type, // New field for UI
-                        timestamp: Date.now()
-                    });
-
-                    return callback({ cancel: true });
-                }
-            }
-
-            // 2. Logging for Network Graph
-            if (!details.url.startsWith('devtools://') && !details.url.includes('localhost:5173')) {
-                mainWindow.webContents.send('network:request', {
-                    id: details.id,
-                    url: details.url,
-                    method: details.method,
-                    type: details.resourceType,
-                    timestamp: Date.now(),
-                    webContentsId: details.webContentsId
-                });
-            }
-        }
-        callback({});
-    });
-
-    session.defaultSession.webRequest.onHeadersReceived((details: any, callback: any) => {
-        if (mainWindow && !mainWindow.isDestroyed()) {
-            // 3rd Party Cookie Detection
-            const cookies = details.responseHeaders['Set-Cookie'] || details.responseHeaders['set-cookie'];
-            if (cookies && cookies.length > 0) {
-                try {
-                    const requestDomain = new URL(details.url).hostname;
-                    // initiator might be missing or complex, simplistic check:
-                    // If requestDomain is different from the main frame URL (we don't easily know main frame URL locally here without lookup)
-                    // For prototype, we'll just emit everything and filter in UI? 
-                    // Better: check if not main_frame resource type
-                    if (details.resourceType !== 'mainFrame') {
-                        // It's likely a subresource setting a cookie -> potentially 3rd party
-                        mainWindow.webContents.send('privacy:cookie-detected', {
+        // Network Request Handler (AdBlock + Monitoring)
+        sess.webRequest.onBeforeRequest({ urls: ['*://*/*'] }, (details: any, callback: any) => {
+            // 1. AdBlocking Check
+            if (adBlocker) {
+                // Check C++ Engine First (Fast Path)
+                const engineCheck = engine.checkUrl(details.url);
+                if (engineCheck.blocked) {
+                    if (mainWindow && !mainWindow.isDestroyed()) {
+                        queueBlockedRequest({
                             url: details.url,
-                            domain: requestDomain,
-                            cookies: cookies,
-                            block: false // We are not blocking cookies yet, just visualizing
+                            domain: new URL(details.url).hostname,
+                            type: 'C++ Engine',
+                            timestamp: Date.now()
                         });
                     }
-                } catch (e) { }
+                    callback({ cancel: true });
+                    return;
+                }
+
+                // Check if this request should be blocked
+                const match = adBlocker.match(details);
+                // Whitelist Critical Services
+                if (details.url.includes('google.com') || details.url.includes('gstatic.com') || details.url.includes('googleapis.com')) {
+                    callback({ cancel: false });
+                    return;
+                }
+
+                if (match.redirect) {
+                    callback({ redirectURL: match.redirect.dataUrl });
+                    return;
+                }
+                if (match.match) {
+                    if (mainWindow && !mainWindow.isDestroyed()) {
+                        let type = 'Ad';
+                        const url = details.url.toLowerCase();
+                        if (url.includes('tracker') || url.includes('analytics') || url.includes('segment')) type = 'Tracker';
+
+                        queueBlockedRequest({
+                            url: details.url,
+                            domain: new URL(details.url).hostname,
+                            type: type,
+                            timestamp: Date.now()
+                        });
+                    }
+                    callback({ cancel: true });
+                    return;
+                }
             }
-        }
-        callback({ responseHeaders: details.responseHeaders });
-    });
 
-    session.defaultSession.webRequest.onCompleted((details: any) => {
-        if (mainWindow && !mainWindow.isDestroyed()) {
-            if (!details.url.startsWith('devtools://') && !details.url.includes('localhost:5173')) {
-                mainWindow.webContents.send('network:complete', {
-                    id: details.id,
-                    statusCode: details.statusCode,
-                    timestamp: Date.now(),
-                    duration: -1
-                });
+            // 2. Network Monitoring (Passive)
+            if (mainWindow && !mainWindow.isDestroyed() && isNetworkMonitoringActive) {
+                if (!details.url.startsWith('devtools://') && !details.url.includes('localhost:5173')) {
+                    mainWindow.webContents.send('network:request', {
+                        id: details.id,
+                        url: details.url,
+                        method: details.method,
+                        type: details.resourceType,
+                        timestamp: Date.now(),
+                        webContentsId: details.webContentsId
+                    });
+                }
             }
-        }
-    });
 
-    // Download Management
-    session.defaultSession.on('will-download', (_event: any, item: any, _webContents: any) => {
-        if (!mainWindow || mainWindow.isDestroyed()) return;
-
-        const id = Date.now().toString(); // Simple ID
-        const filename = item.getFilename();
-        const url = item.getURL();
-
-        // 1. Start
-        mainWindow.webContents.send('download:update', {
-            id,
-            filename,
-            url,
-            state: 'progressing',
-            receivedBytes: 0,
-            totalBytes: item.getTotalBytes()
+            // 3. Allow
+            callback({ cancel: false });
         });
 
-        item.on('updated', (_event: any, state: any) => {
-            if (!mainWindow || mainWindow.isDestroyed()) return;
-            if (state === 'interrupted') {
-                mainWindow.webContents.send('download:update', { id, state: 'interrupted' });
-            } else if (state === 'progressing') {
-                if (item.isPaused()) {
-                    mainWindow.webContents.send('download:update', { id, state: 'paused' });
-                } else {
-                    mainWindow.webContents.send('download:update', {
-                        id,
-                        state: 'progressing',
-                        receivedBytes: item.getReceivedBytes(),
-                        totalBytes: item.getTotalBytes()
+        sess.webRequest.onHeadersReceived((details: any, callback: any) => {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                const cookies = details.responseHeaders['Set-Cookie'] || details.responseHeaders['set-cookie'];
+                if (cookies && cookies.length > 0 && details.resourceType !== 'mainFrame') {
+                    try {
+                        mainWindow.webContents.send('privacy:cookie-detected', {
+                            url: details.url,
+                            domain: new URL(details.url).hostname,
+                            cookies: cookies,
+                            block: false
+                        });
+                    } catch (e) { }
+                }
+            }
+            callback({ responseHeaders: details.responseHeaders });
+        });
+
+        sess.webRequest.onCompleted((details: any) => {
+            if (mainWindow && !mainWindow.isDestroyed() && isNetworkMonitoringActive) {
+                if (!details.url.startsWith('devtools://') && !details.url.includes('localhost:5173')) {
+                    mainWindow.webContents.send('network:complete', {
+                        id: details.id,
+                        statusCode: details.statusCode,
+                        timestamp: Date.now(),
+                        duration: -1
                     });
                 }
             }
         });
 
-        item.once('done', (_event: any, state: any) => {
-            if (!mainWindow || mainWindow.isDestroyed()) return;
-            if (state === 'completed') {
-                mainWindow.webContents.send('download:update', {
-                    id,
-                    state: 'completed',
-                    receivedBytes: item.getReceivedBytes(), // Should equal total
-                    totalBytes: item.getTotalBytes()
-                });
-            } else {
-                mainWindow.webContents.send('download:update', { id, state: 'failed' }); // cancelled or interrupted
+        // Permission Handling
+        sess.setPermissionRequestHandler((webContents: any, permission: string, callback: any, details: any) => {
+            const check = activePermissions.find(p => p.origin === details.requestingUrl && p.permission === permission);
+            if (check && check.status === 'granted') {
+                return callback(true);
             }
+
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('security:permission-request', {
+                    origin: details.requestingUrl,
+                    permission,
+                    details
+                });
+            }
+
+            // For now, auto-allow to prevent breakage until UI is fully wired
+            activePermissions.push({ id: Date.now(), origin: details.requestingUrl, permission, status: 'granted' });
+            callback(true);
         });
+    };
+
+    // Apply to Default Session
+    configureSession(session.defaultSession);
+
+    // Apply to all future sessions (including persist:underlay)
+    app.on('session-created', (sess) => {
+        configureSession(sess);
     });
 
-    // Performance Monitoring - Optimized Polling
-    // Store latest CDP metrics per WebContents ID
-    const cdpMetrics: Record<number, any> = {};
-    let perfInterval: NodeJS.Timeout | null = null;
+    ipcMain.handle('security:get-permissions', () => activePermissions);
 
-    const startPerfPolling = () => {
-        if (perfInterval) return;
-        perfInterval = setInterval(async () => {
-            if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()) {
-                const metrics = app.getAppMetrics();
-                const allWebContents = webContents.getAllWebContents();
-
-                // Only poll webviews that are likely active or important
-                // For a lighter browser, we skip extreme detailed CDP polling on every interval
-                // unless the user specifically has the "Performance" overlay open (which we don't track explicitly yet)
-                // We'll reduce the scope: only poll basic process metrics usually.
-
-                const processMap = allWebContents.map((wc: any) => ({
-                    id: wc.id,
-                    pid: wc.getOSProcessId(),
-                    type: wc.getType(),
-                    url: wc.getURL(),
-                    cdp: cdpMetrics[wc.id] // Cached or empty
-                }));
-
-                mainWindow.webContents.send('performance:update', {
-                    metrics,
-                    processMap
-                });
-            }
-        }, 5000);
-    };
-
-    const stopPerfPolling = () => {
-        if (perfInterval) {
-            clearInterval(perfInterval);
-            perfInterval = null;
+    ipcMain.on('security:revoke', (_e, { origin, permission }) => {
+        const idx = activePermissions.findIndex(p => p.origin === origin && p.permission === permission);
+        if (idx !== -1) {
+            activePermissions.splice(idx, 1);
         }
-    };
-
-    startPerfPolling();
-
-    // Optimize background resource usage
-    if (mainWindow) {
-        mainWindow.on('blur', () => {
-            // Optional: throttle polling further or stop
-        });
-
-        mainWindow.on('focus', () => {
-            startPerfPolling();
-        });
-
-        mainWindow.on('hide', stopPerfPolling);
-        mainWindow.on('show', startPerfPolling);
-    }
-
-    app.on('activate', () => {
-        if (BrowserWindow.getAllWindows().length === 0) createWindow();
     });
 
     // CDP Integration
     app.on('web-contents-created', (_e, contents) => {
         if (contents.getType() === 'webview') {
-            contents.on('did-start-navigation', () => {
-                try {
-                    /* 
-                    // OPTIMIZATION: Disabled automatic debugger attachment to improve performance/compatibility (Netflix/YouTube)
-                    if (!contents.debugger.isAttached()) {
-                        contents.debugger.attach('1.3');
-                        contents.debugger.sendCommand('Network.enable');
-                        contents.debugger.sendCommand('Security.enable');
-                        contents.debugger.sendCommand('DOM.enable');
-                        contents.debugger.sendCommand('Overlay.enable');
-                        contents.debugger.sendCommand('Profiler.enable');
+            // Allow Popups from Webview (Important for Google/Reddit Auth)
+            contents.setWindowOpenHandler(({ url }) => {
+                console.log("[WebView] Requesting popup:", url);
+                return {
+                    action: 'allow',
+                    overrideBrowserWindowOptions: {
+                        frame: true,
+                        autoHideMenuBar: true,
+                        backgroundColor: '#0f0f11',
+                        modal: false,
+                        focusable: true,
+                        alwaysOnTop: true, // Temporarily force on top to fail-safe visibility
                     }
-                    */
-                } catch (err) {
-                    console.error('Debugger attach failed', err);
-                }
+                };
             });
 
-            // YOUTUBE AD BLOCKING INJECTION
-            // YOUTUBE AD BLOCKING INJECTION
-            contents.on('dom-ready', () => {
-                const url = contents.getURL();
-                /*
-                // DEBUG: Temporarily disabled to check if this causes crashes
-                if (url.includes('youtube.com')) {
-                    // 1. Cosmetic Filtering (Hide Ad Elements)
-                    contents.insertCSS(`
-                        .video-ads, .ytp-ad-module, .ytp-ad-image-overlay,
-                        .ytp-ad-overlay-container, #player-ads, #masthead-ad,
-                        ytd-ad-slot-renderer, ytd-rich-item-renderer:has(> .ytd-ad-slot-renderer),
-                        .ytd-ad-slot-renderer, .ytd-in-feed-ad-layout-renderer,
-                        .ad-showing .html5-video-controls {
-                            display: none !important;
-                            visibility: hidden !important;
-                            width: 0 !important;
-                            height: 0 !important;
-                            pointer-events: none !important;
-                        }
-                    `);
-    
-                    // 2. Behavioral Blocking (Aggressive Skip)
-                    contents.executeJavaScript(`
-                        (() => {
-                            if (window._adBlockerRunning) return;
-                            window._adBlockerRunning = true;
-                            console.log('[Privacy] YouTube Ad Blocker Active');
-    
-                            const skipAd = () => {
-                                const video = document.querySelector('video');
-                                const skipBtn = document.querySelector('.ytp-ad-skip-button, .ytp-ad-skip-button-modern, .videoAdUiSkipButton');
-                                const overlayClose = document.querySelector('.ytp-ad-overlay-close-button');
-                                
-                                // Click Skip Button
-                                if (skipBtn) {
-                                    skipBtn.click();
-                                    console.log('[Privacy] Skipped ad button');
-                                }
-                                
-                                // Close Overlay
-                                if (overlayClose) {
-                                    overlayClose.click();
-                                }
-    
-                                // Fast Forward Video Ads
-                                if (video) {
-                                    const isAd = document.querySelector('.ad-showing') || document.querySelector('.ad-interrupting');
-                                    if (isAd) {
-                                        video.playbackRate = 16.0;
-                                        video.muted = true;
-                                        if (isFinite(video.duration)) {
-                                            video.currentTime = video.duration;
-                                        }
-                                        console.log('[Privacy] Fast-forwarded ad');
-                                    }
-                                }
-                            };
-    
-                            // Run on interval as fallback
-                            setInterval(skipAd, 100);
-    
-                            // Run on mutation for instant reaction
-                            const observer = new MutationObserver((mutations) => {
-                                for (const m of mutations) {
-                                    if (m.type === 'childList' || m.type === 'attributes') {
-                                        skipAd();
-                                    }
-                                }
-                            });
-                            
-                            const player = document.querySelector('#movie_player') || document.body;
-                            observer.observe(player, { 
-                                childList: true, 
-                                subtree: true, 
-                                attributes: true, 
-                                attributeFilter: ['class', 'style'] 
-                            });
-                        })();
-                    `);
-                }
-                */
-            });
-
-            contents.debugger.on('message', (_event, method, params) => {
+            // Context Menu Integration
+            contents.on('context-menu', (_e, params) => {
                 if (mainWindow && !mainWindow.isDestroyed()) {
-                    if (method === 'Security.visibleSecurityStateChanged') {
-                        mainWindow.webContents.send('security:state-changed', {
-                            visibleSecurityState: params.visibleSecurityState,
-                            timestamp: Date.now()
-                        });
-                    } else if (method === 'Network.responseReceived') {
-                        mainWindow.webContents.send('network:cdp', {
-                            method,
-                            requestId: params.requestId,
-                            timing: params.response.timing,
-                            fromDiskCache: params.response.fromDiskCache,
-                            fromServiceWorker: params.response.fromServiceWorker,
-                            timestamp: Date.now()
-                        });
-                    } else if (method === 'Network.requestWillBeSent') {
-                        mainWindow.webContents.send('network:cdp', { method, requestId: params.requestId, timestamp: Date.now() });
-                    } else if (method === 'Network.loadingFinished') {
-                        mainWindow.webContents.send('network:cdp', { method, requestId: params.requestId, timestamp: Date.now() });
-                    }
+                    mainWindow.webContents.send('ui:context-menu', {
+                        x: params.x,
+                        y: params.y,
+                        selectionText: params.selectionText,
+                        mediaType: params.mediaType,
+                        srcUrl: params.srcURL,
+                        linkUrl: params.linkURL
+                    });
                 }
             });
 
@@ -506,100 +405,29 @@ app.whenReady().then(() => {
                 } catch (e) { }
             });
         }
-    });
 
-    // Performance Control IPCs
-    ipcMain.on('perf:throttle-cpu', (_e, { pid, rate }) => {
-        const wc = webContents.getAllWebContents().find((w: any) => w.getOSProcessId() === pid);
-        if (wc && wc.debugger.isAttached()) {
-            wc.debugger.sendCommand('Emulation.setCPUThrottlingRate', { rate }).catch(console.error);
-        }
-    });
+        // POPUP CONFIGURATION (Google Login Fix)
+        if (contents.getType() === 'window') {
+            contents.setWindowOpenHandler(({ url }) => {
+                return { action: 'allow' };
+            });
 
-    ipcMain.on('perf:freeze', (_e, { pid, frozen }) => {
-        const wc = webContents.getAllWebContents().find((w: any) => w.getOSProcessId() === pid);
-        if (wc && wc.debugger.isAttached()) {
-            // Simulate freeze with extreme throttling
-            wc.debugger.sendCommand('Emulation.setCPUThrottlingRate', { rate: frozen ? 100 : 1 }).catch(console.error);
-        }
-    });
+            // Ensure the popup has proper web preferences for interaction
+            contents.once('did-create-window', (window) => {
+                // Reset any weird flags
+                window.setMenuBarVisibility(false);
 
-    ipcMain.on('perf:gc', (_e, { pid }) => {
-        const wc = webContents.getAllWebContents().find((w: any) => w.getOSProcessId() === pid);
-        if (wc && wc.debugger.isAttached()) {
-            wc.debugger.sendCommand('HeapProfiler.enable').then(() => {
-                return wc.debugger.sendCommand('HeapProfiler.collectGarbage');
-            }).catch(console.error);
-        }
-    });
+                // CRITICAL: Google Sign In needs the correct User Agent on the Popup too!
+                // It often defaults to Electron/X.Y.Z which Google blocks.
+                window.webContents.setUserAgent(session.defaultSession.getUserAgent());
 
-    ipcMain.on('perf:throttle-network', (_e, { pid, profile }) => {
-        const wc = webContents.getAllWebContents().find((w: any) => w.getOSProcessId() === pid);
-        if (wc && wc.debugger.isAttached()) {
-            let conditions = { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 };
-            if (profile === 'Slow 3G') {
-                conditions = { offline: false, latency: 2000, downloadThroughput: 50 * 1024, uploadThroughput: 50 * 1024 };
-            } else if (profile === 'Offline') {
-                conditions = { offline: true, latency: 0, downloadThroughput: 0, uploadThroughput: 0 };
-            }
-            wc.debugger.sendCommand('Network.emulateNetworkConditions', conditions).catch(console.error);
-        }
-    });
-
-    const { ipcMain: ipc } = require('electron'); // Aliasing just to be safe if reusing
-    ipc.on('network:block-url', (_e: any, patterns: string[]) => {
-        const all = webContents.getAllWebContents();
-        for (const wc of all) {
-            try {
-                if (wc.getType() === 'webview' && wc.debugger.isAttached()) {
-                    wc.debugger.sendCommand('Network.setBlockedURLs', { urls: patterns });
-                }
-            } catch (e) { }
-        }
-    });
-
-    // Security & Permissions
-    // In-memory permission store for this session
-    const activePermissions: Array<{
-        id: number;
-        origin: string;
-        permission: string;
-        status: 'granted' | 'denied';
-    }> = [];
-
-    session.defaultSession.setPermissionRequestHandler((webContents: any, permission: string, callback: any, details: any) => {
-        // Auto-approve if already granted in our store (simple persistence)
-        const check = activePermissions.find(p => p.origin === details.requestingUrl && p.permission === permission);
-        if (check && check.status === 'granted') {
-            return callback(true);
-        }
-
-        // Otherwise notify renderer
-        if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.webContents.send('security:permission-request', {
-                origin: details.requestingUrl,
-                permission,
-                details
+                // Ensure focus
+                window.once('ready-to-show', () => {
+                    window.show();
+                    window.focus();
+                });
             });
         }
-
-        // Default to false aka "Ask" (but here we block until approved or just let Electron handle prompt? 
-        // Electron's default behavior without callback is to deny. 
-        // We will approve for now to simplify, but in real app we'd wait for UI response.
-        // For this demo: Auto-allow and log it for visualization
-        activePermissions.push({ id: Date.now(), origin: details.requestingUrl, permission, status: 'granted' });
-        callback(true);
-    });
-
-    ipcMain.handle('security:get-permissions', () => activePermissions);
-
-    ipcMain.on('security:revoke', (_e, { origin, permission }) => {
-        const idx = activePermissions.findIndex(p => p.origin === origin && p.permission === permission);
-        if (idx !== -1) {
-            activePermissions.splice(idx, 1);
-        }
-        // Force reload of pages on that origin to apply revocation? 
-        // For now just removing from store so next request triggers prompt/log again.
     });
 
     // Developer Mode Tools
@@ -638,6 +466,16 @@ app.whenReady().then(() => {
         }
     });
 
+    // Privacy Reporting (Fingerprinting)
+    ipcMain.on('privacy:fingerprint-report', (_e, data) => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('privacy:fingerprint-attempt', {
+                ...data,
+                timestamp: Date.now()
+            });
+        }
+    });
+
     // Extension Management
     ipcMain.handle('extension:load', async (_e) => {
         try {
@@ -663,6 +501,18 @@ app.whenReady().then(() => {
             name: ext.name,
             version: ext.version
         }));
+    });
+
+    // Search Suggestions (Proxy to bypass CORS)
+    ipcMain.handle('search:suggest', async (_e, query) => {
+        try {
+            const response = await fetch(`https://suggestqueries.google.com/complete/search?client=chrome&q=${encodeURIComponent(query)}`);
+            const data = await response.json();
+            return data;
+        } catch (e) {
+            console.error('Search suggest failed:', e);
+            return [];
+        }
     });
 
     ipcMain.handle('extension:remove', async (_e, id) => {
@@ -731,5 +581,15 @@ app.whenReady().then(() => {
 
     app.on('window-all-closed', () => {
         if (process.platform !== 'darwin') app.quit();
+    });
+
+    // C++ Integration
+    ipcMain.handle('get-cpp-message', () => {
+        try {
+            return addon.getMessage();
+        } catch (e) {
+            console.error('C++ Addon Error:', e);
+            return 'Error calling C++ addon';
+        }
     });
 });

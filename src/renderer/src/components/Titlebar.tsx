@@ -1,6 +1,6 @@
 import React, { MouseEvent } from 'react';
 import { useBrowser, Tab } from '../context/BrowserContext';
-import { X, Plus } from 'lucide-react';
+import { X, Plus, Loader2 } from 'lucide-react';
 import classNames from 'classnames';
 import { motion, LayoutGroup } from 'framer-motion';
 
@@ -17,11 +17,13 @@ export function Titlebar() {
     };
 
     const isMac = /Mac|iPod|iPhone|iPad/.test(navigator.platform);
-    const paddingClass = isMac ? 'pl-20 pr-2' : 'pl-2 pr-40';
+    // On mobile, we don't need window control padding, but we might want some left padding
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    const paddingClass = isMobile ? 'px-2' : (isMac ? 'pl-20 pr-2' : 'pl-2 pr-40');
 
     return (
-        <div className={`h-10 bg-underlay-bg/90 backdrop-blur-xl flex items-end ${paddingClass} pt-2 gap-2 select-none app-region-drag border-b border-underlay-border z-20 relative shadow-sm`}>
-            <div className="flex-1 flex gap-1 overflow-x-auto no-scrollbar app-region-no-drag items-end">
+        <div className={`h-14 bg-underlay-bg flex items-end ${paddingClass} pt-2 gap-2 select-none app-region-drag border-b border-underlay-border z-20 relative shadow-sm`}>
+            <div className="flex-1 flex gap-1 overflow-x-auto no-scrollbar items-end">
                 <LayoutGroup>
                     {state.tabs.map((tab) => (
                         <TabItem
@@ -34,10 +36,12 @@ export function Titlebar() {
                     ))}
                 </LayoutGroup>
                 <motion.button
-                    whileHover={{ scale: 1.1, backgroundColor: 'var(--underlay-text, rgba(255,255,255,0.1))' }}
+                    layout
+                    transition={{ type: "spring", stiffness: 400, damping: 30 }}
+                    whileHover={{ scale: 1.1, backgroundColor: 'rgba(255, 255, 255, 0.05)' }}
                     whileTap={{ scale: 0.95 }}
                     onClick={handleNewTab}
-                    className="h-8 w-8 flex items-center justify-center text-underlay-text/50 rounded-md transition-colors mb-0.5"
+                    className="h-8 w-8 flex items-center justify-center text-underlay-text/50 rounded-md transition-colors mb-0.5 app-region-no-drag hover:text-white"
                 >
                     <Plus size={16} />
                 </motion.button>
@@ -56,10 +60,13 @@ function TabItem({ tab, isActive, onClose, onClick }: { tab: Tab, isActive: bool
             transition={{ type: "spring", stiffness: 400, damping: 35 }}
             onClick={onClick}
             className={classNames(
-                "group h-8 px-3 min-w-[140px] max-w-[220px] flex items-center gap-2 rounded-t-lg text-xs cursor-default overflow-hidden relative border-t border-r border-l border-underlay-border shadow-lg",
+                "group h-8 px-3 min-w-[140px] max-w-[220px] flex items-center gap-2 rounded-t-lg text-xs cursor-default overflow-hidden relative border-t border-r border-l border-underlay-border shadow-lg app-region-no-drag",
                 isActive ? "bg-underlay-surface text-underlay-text z-10" : "bg-underlay-text/5 text-underlay-text/40 hover:bg-underlay-text/10 z-0 mb-0.5"
             )}
         >
+            {tab.status === 'loading' && (
+                <Loader2 size={12} className="animate-spin text-blue-500" />
+            )}
             <span className="flex-1 truncate font-medium tracking-wide">{tab.title || 'Loading...'}</span>
             <motion.button
                 whileHover={{ scale: 1.2, backgroundColor: 'rgba(255,255,255,0.2)' }}

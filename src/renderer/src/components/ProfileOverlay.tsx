@@ -14,18 +14,6 @@ export function ProfileOverlay({ isOpen, onClose }: { isOpen: boolean, onClose: 
         // The session cookies are shared, so logging in once logs you in everywhere.
         dispatch({ type: 'NEW_TAB', payload: { url: 'https://accounts.google.com/signin' } });
         onClose();
-
-        // Optimistic update for UI feel (in real app, we'd scrape/detect auth)
-        setTimeout(() => {
-            dispatch({
-                type: 'UPDATE_PROFILE',
-                payload: {
-                    isAuthenticated: true,
-                    email: 'user@gmail.com', // Placeholder until we can actually scrape this
-                    avatar: 'https://lh3.googleusercontent.com/a/default-user=s96-c'
-                }
-            });
-        }, 5000);
     };
 
     const handleLogout = () => {
@@ -53,7 +41,7 @@ export function ProfileOverlay({ isOpen, onClose }: { isOpen: boolean, onClose: 
                     initial={{ opacity: 0, scale: 0.95, y: -20 }}
                     animate={{ opacity: 1, scale: 1, y: 0 }}
                     exit={{ opacity: 0, scale: 0.95, y: -20 }}
-                    className="absolute top-16 right-4 w-80 bg-[#1a1a1e]/95 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl z-50 overflow-hidden"
+                    className="absolute top-16 right-4 w-80 bg-[#1a1a1e] border border-white/10 rounded-2xl shadow-2xl z-[100] overflow-hidden"
                 >
                     {/* Header */}
                     <div className="h-32 bg-gradient-to-br from-blue-600 to-purple-600 relative p-6 flex flex-col justify-end">

@@ -9,6 +9,9 @@ contextBridge.exposeInMainWorld('electron', {
         ipcRenderer.on('network:request', subscription);
         return () => ipcRenderer.removeListener('network:request', subscription);
     },
+    toggleNetworkMonitoring: (active: boolean) => {
+        require('electron').ipcRenderer.send('network:toggle-monitoring', active);
+    },
     onNetworkResponse: (callback: (data: any) => void) => {
         const { ipcRenderer } = require('electron');
         const subscription = (_: any, data: any) => callback(data);
@@ -61,13 +64,28 @@ contextBridge.exposeInMainWorld('electron', {
             const subscription = (_: any, data: any) => callback(data);
             require('electron').ipcRenderer.on('security:state-changed', subscription);
             return () => require('electron').ipcRenderer.removeListener('security:state-changed', subscription);
+        },
+        sendPermissionResponse: (id: number, allow: boolean) => require('electron').ipcRenderer.send('security:response', { id, allow })
+    },
+    ui: {
+        onContextMenu: (callback: (data: any) => void) => {
+            const subscription = (_: any, data: any) => callback(data);
+            require('electron').ipcRenderer.on('ui:context-menu', subscription);
+            return () => require('electron').ipcRenderer.removeListener('ui:context-menu', subscription);
         }
     },
     privacy: {
         onTrackerBlocked: (callback: (data: any) => void) => {
             const subscription = (_: any, data: any) => callback(data);
+            const batchSub = (_: any, batch: any[]) => batch.forEach(data => callback(data));
+
             require('electron').ipcRenderer.on('privacy:tracker-blocked', subscription);
-            return () => require('electron').ipcRenderer.removeListener('privacy:tracker-blocked', subscription);
+            require('electron').ipcRenderer.on('privacy:tracker-blocked-batch', batchSub);
+
+            return () => {
+                require('electron').ipcRenderer.removeListener('privacy:tracker-blocked', subscription);
+                require('electron').ipcRenderer.removeListener('privacy:tracker-blocked-batch', batchSub);
+            };
         },
         onCookieDetected: (callback: (data: any) => void) => {
             const subscription = (_: any, data: any) => callback(data);
@@ -95,7 +113,14 @@ contextBridge.exposeInMainWorld('electron', {
         importBookmarks: (browser: 'chrome' | 'brave' | 'edge') => require('electron').ipcRenderer.invoke('sync:import-bookmarks', browser)
     },
     shell: {
-        showItem: (path: string) => require('electron').ipcRenderer.send('shell:show-item', path)
+        showItem: (path: string) => require('electron').ipcRenderer.send('shell:show-item', path),
+        openExternal: (url: string) => require('electron').shell.openExternal(url)
+    },
+    search: {
+        suggest: (query: string) => require('electron').ipcRenderer.invoke('search:suggest', query)
+    },
+    cpp: {
+        getMessage: () => require('electron').ipcRenderer.invoke('get-cpp-message')
     }
 });
 

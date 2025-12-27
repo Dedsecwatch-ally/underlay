@@ -1,7 +1,11 @@
 import React from 'react';
 import { motion } from 'framer-motion';
+import { useOnlineStatus } from '../hooks/useOnlineStatus';
+import { WifiOff } from 'lucide-react';
 
 export function LoadingScreen() {
+    const isOnline = useOnlineStatus();
+
     return (
         <div className="absolute inset-0 bg-[#0f0f11] flex flex-col items-center justify-center z-50">
             <motion.div
@@ -22,7 +26,7 @@ export function LoadingScreen() {
                         repeat: Infinity,
                         ease: "easeInOut"
                     }}
-                    className="absolute w-32 h-32 rounded-full bg-underlay-accent/20 blur-3xl"
+                    className={`absolute w-32 h-32 rounded-full blur-3xl ${isOnline ? 'bg-underlay-accent/20' : 'bg-red-500/20'}`}
                 />
 
                 {/* Inner Pulse */}
@@ -36,22 +40,26 @@ export function LoadingScreen() {
                         repeat: Infinity,
                         ease: "easeInOut"
                     }}
-                    className="w-12 h-12 rounded-full border-2 border-underlay-accent/50 flex items-center justify-center"
+                    className={`w-12 h-12 rounded-full border-2 flex items-center justify-center ${isOnline ? 'border-underlay-accent/50' : 'border-red-500/50'}`}
                 >
-                    <motion.div
-                        animate={{ scale: [1, 0.8, 1] }}
-                        transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-                        className="w-3 h-3 bg-underlay-accent rounded-full"
-                    />
+                    {isOnline ? (
+                        <motion.div
+                            animate={{ scale: [1, 0.8, 1] }}
+                            transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+                            className="w-3 h-3 bg-underlay-accent rounded-full"
+                        />
+                    ) : (
+                        <WifiOff size={20} className="text-red-500" />
+                    )}
                 </motion.div>
 
                 <motion.span
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     transition={{ delay: 0.5, duration: 1 }}
-                    className="absolute top-20 text-underlay-text/20 text-xs font-mono tracking-widest uppercase"
+                    className={`absolute top-20 text-xs font-mono tracking-widest uppercase ${isOnline ? 'text-underlay-text/20' : 'text-red-500/50'}`}
                 >
-                    Loading
+                    {isOnline ? 'Loading' : 'Offline'}
                 </motion.span>
             </motion.div>
         </div>

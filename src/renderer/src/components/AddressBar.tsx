@@ -53,9 +53,50 @@ export function AddressBar() {
         }
     }, [state.activeCommand]);
 
+    // Search Suggestions Logic
+    const [suggestions, setSuggestions] = useState<string[]>([]);
+    const [showSuggestions, setShowSuggestions] = useState(false);
+    const [selectedIndex, setSelectedIndex] = useState(-1);
+
+    useEffect(() => {
+        const fetchSuggestions = async () => {
+            const query = inputUrl.trim();
+            if (!query || query.startsWith('http') || query.includes('.') || query.length < 2) {
+                setSuggestions([]);
+                return;
+            }
+
+            try {
+                // Use Main Process proxy to avoid CORS
+                const data = await window.electron.search.suggest(query);
+                // data format: ["query", ["sug1", "sug2", ...], ...]
+                if (Array.isArray(data) && Array.isArray(data[1])) {
+                    setSuggestions(data[1].slice(0, 5));
+                }
+            } catch (e) {
+                // Silent fail
+            }
+        };
+
+        const timeoutId = setTimeout(() => {
+            if (activeTab && inputUrl !== activeTab.url) {
+                fetchSuggestions();
+            }
+        }, 200); // Debounce 200ms
+
+        return () => clearTimeout(timeoutId);
+    }, [inputUrl, activeTab]);
+
     const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-        if (e.key === 'Enter' && activeTab) {
-            let url = inputUrl.trim();
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            setSelectedIndex(prev => (prev < suggestions.length - 1 ? prev + 1 : prev));
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            setSelectedIndex(prev => (prev > -1 ? prev - 1 : prev));
+        } else if (e.key === 'Enter' && activeTab) {
+            e.preventDefault();
+            let url = (selectedIndex >= 0 ? suggestions[selectedIndex] : inputUrl).trim();
             if (!url) return;
 
             // Smart Parsing Logic
@@ -75,7 +116,12 @@ export function AddressBar() {
                 url = 'https://google.com/search?q=' + encodeURIComponent(url);
             }
 
-            dispatch({ type: 'UPDATE_TAB', payload: { id: activeTab.id, data: { url } } });
+            dispatch({ type: 'LOAD_URL', payload: { id: activeTab.id, url } });
+            setShowSuggestions(false);
+            setSelectedIndex(-1);
+            if (inputRef.current) inputRef.current.blur();
+        } else if (e.key === 'Escape') {
+            setShowSuggestions(false);
         }
     };
 
@@ -106,8 +152,8 @@ export function AddressBar() {
     }
 
     return (
-        <div className="h-12 bg-underlay-surface border-b border-underlay-border flex items-center px-4 gap-3 z-10 relative overflow-hidden">
-            <div className="flex gap-1 text-underlay-text/60">
+        <div className="h-12 bg-underlay-surface border-b border-underlay-border flex items-center px-4 gap-3 z-10 relative overflow-visible">
+            <div className="flex gap-1 text-underlay-text/60 non-draggable">
                 <NavButton icon={<ArrowLeft size={16} />} onClick={() => dispatch({ type: 'TRIGGER_COMMAND', payload: 'goBack' })} />
                 <NavButton icon={<ArrowRight size={16} />} onClick={() => dispatch({ type: 'TRIGGER_COMMAND', payload: 'goForward' })} />
                 {isLoading ? (
@@ -118,7 +164,7 @@ export function AddressBar() {
             </div>
 
             <div className={`flex-1 bg-underlay-bg rounded-md h-8 flex items-center px-2 gap-2 border border-underlay-border focus-within:border-underlay-accent/50 transition-colors shadow-inner relative ${activeTab?.incognito ? 'bg-zinc-900 border-zinc-700 shadow-[0_0_15px_rgba(0,0,0,0.5)]' : ''}`}>
-                <div className="flex items-center gap-2 cursor-pointer hover:bg-underlay-text/5 p-1 rounded" onClick={() => setShowCertViewer(!showCertViewer)}>
+                <div className="flex items-center gap-2 cursor-pointer hover:bg-underlay-text/5 p-1 rounded non-draggable" onClick={() => setShowCertViewer(!showCertViewer)}>
                     {activeTab?.incognito ? (
                         <VenetianMask size={14} className="text-zinc-400" />
                     ) : (
@@ -143,19 +189,45 @@ export function AddressBar() {
                 )}
 
                 <input
-                    className="bg-transparent border-none outline-none flex-1 w-full text-xs text-underlay-text placeholder-underlay-text/20 font-mono"
+                    ref={inputRef}
+                    className="bg-transparent border-none outline-none flex-1 w-full text-xs text-underlay-text placeholder-underlay-text/20 font-mono non-draggable select-text"
                     value={inputUrl}
-                    onChange={(e) => setInputUrl(e.target.value)}
+                    onChange={(e) => {
+                        setInputUrl(e.target.value);
+                        setShowSuggestions(true);
+                    }}
+                    onFocus={() => setShowSuggestions(true)}
+                    onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
                     onKeyDown={handleKeyDown}
                     spellCheck={false}
                 />
 
                 <button
                     onClick={toggleBookmark}
-                    className={`p-1 rounded-md transition-colors ${isBookmarked ? 'text-yellow-400 hover:bg-yellow-400/10' : 'text-underlay-text/20 hover:text-underlay-text/60 hover:bg-underlay-text/5'}`}
+                    className={`p-1 rounded-md transition-colors non-draggable ${isBookmarked ? 'text-yellow-400 hover:bg-yellow-400/10' : 'text-underlay-text/20 hover:text-underlay-text/60 hover:bg-underlay-text/5'}`}
                 >
                     <Star size={14} fill={isBookmarked ? "currentColor" : "none"} />
                 </button>
+
+                {/* Suggestions Dropdown */}
+                {showSuggestions && suggestions.length > 0 && (
+                    <div className="absolute top-full left-0 right-0 mt-1 bg-underlay-surface border border-underlay-border rounded-md shadow-2xl py-1 z-50 overflow-hidden non-draggable">
+                        {suggestions.map((sug, i) => (
+                            <div
+                                key={i}
+                                className={`px-3 py-2 text-xs cursor-pointer flex items-center gap-2 ${i === selectedIndex ? 'bg-underlay-accent/20 text-underlay-accent' : 'hover:bg-white/5 text-underlay-text'}`}
+                                onMouseDown={(e) => {
+                                    e.preventDefault(); // Prevent focus loss
+                                    dispatch({ type: 'LOAD_URL', payload: { id: activeTab!.id, url: 'https://google.com/search?q=' + encodeURIComponent(sug) } });
+                                    setShowSuggestions(false);
+                                }}
+                            >
+                                <span className="opacity-50">Is this what you're looking for?</span>
+                                <span className="font-medium">{sug}</span>
+                            </div>
+                        ))}
+                    </div>
+                )}
             </div>
 
             {/* Loading Indicator */}
@@ -186,8 +258,14 @@ function NavButton({ icon, onClick }: { icon: React.ReactNode, onClick?: () => v
         onClick?.();
     };
     return (
-        <button onClick={handleClick} className="p-1.5 hover:bg-underlay-text/10 rounded-md transition-colors text-inherit hover:text-underlay-text">
+        <motion.button
+            onClick={handleClick}
+            whileHover={{ scale: 1.1, backgroundColor: "rgba(255, 255, 255, 0.1)" }}
+            whileTap={{ scale: 0.95 }}
+            transition={{ type: "spring", stiffness: 400, damping: 17 }}
+            className="p-1.5 rounded-md transition-colors text-inherit hover:text-underlay-text"
+        >
             {icon}
-        </button>
+        </motion.button>
     )
 }

@@ -16,7 +16,7 @@ export function DownloadsOverlay({ isOpen, onClose }: { isOpen: boolean; onClose
     return (
         <AnimatePresence>
             {isOpen && (
-                <div className="absolute inset-0 z-50 flex items-center justify-center p-12 bg-black/60 backdrop-blur-sm" onClick={(e) => {
+                <div className="absolute inset-0 z-50 flex items-center justify-center p-12 bg-black/95" onClick={(e) => {
                     if (e.target === e.currentTarget) onClose();
                 }}>
                     <motion.div
