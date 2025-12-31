@@ -1,13 +1,17 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta http-equiv="Content-Security-Policy" content="script-src 'self' 'unsafe-inline' http://localhost:5173" />
-    <title>Underlay Browser</title>
-  </head>
-  <body class="bg-underlay-bg text-underlay-text overflow-hidden h-screen w-screen">
-    <div id="root" class="h-full w-full"></div>
-    <script type="module" src="/src/main.tsx"></script>
-  </body>
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy"
+    content="script-src 'self' 'unsafe-inline' http://localhost:5173; connect-src 'self' https://api.open-meteo.com http://localhost:5173;" />
+  <title>Underlay Browser</title>
+</head>
+
+<body class="bg-underlay-bg text-underlay-text overflow-hidden h-screen w-screen">
+  <div id="root" class="h-full w-full"></div>
+  <script type="module" src="/src/main.tsx"></script>
+</body>
+
 </html>

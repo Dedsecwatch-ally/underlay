@@ -1,7 +1,8 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Copy, ArrowLeft, ArrowRight, RotateCw, ExternalLink, Image, Search } from 'lucide-react';
+import { Copy, ArrowLeft, ArrowRight, RotateCw, ExternalLink, Image, Search, Camera } from 'lucide-react';
 import { getPlatformElectron } from '../utils/PlatformUtils';
+import { useBrowser } from '../context/BrowserContext';
 
 // NOTE: In a real Electron webview scenario, getting the context menu event *from* the webview 
 // usually requires an IPC message from the preload script of that webview, containing coordinate/selection data.
@@ -19,6 +20,7 @@ interface ContextMenuData {
 }
 
 export const ContextMenu: React.FC = () => {
+    const { dispatch } = useBrowser();
     const [menuData, setMenuData] = useState<ContextMenuData | null>(null);
     const menuRef = useRef<HTMLDivElement>(null);
 
@@ -108,10 +110,25 @@ export const ContextMenu: React.FC = () => {
 
                 {!hasSelection && !isLink && !isImage && (
                     <>
-                        <MenuItem label="Back" onClick={() => { }} />
-                        <MenuItem label="Forward" onClick={() => { }} />
-                        <MenuItem label="Reload" onClick={() => { }} />
+                        <MenuItem label="Back" onClick={() => { dispatch({ type: 'TRIGGER_COMMAND', payload: 'goBack' }); setMenuData(null); }} />
+                        <MenuItem label="Forward" onClick={() => { dispatch({ type: 'TRIGGER_COMMAND', payload: 'goForward' }); setMenuData(null); }} />
+                        <MenuItem label="Reload" onClick={() => { dispatch({ type: 'TRIGGER_COMMAND', payload: 'reload' }); setMenuData(null); }} />
                         <div className="h-px bg-white/5 my-1" />
+                        <MenuItem icon={<Camera size={14} />} label="Take Screenshot" onClick={async () => {
+                            setMenuData(null); // Close menu first
+                            try {
+                                const dataUrl = await window.underlay.screenshot.captureVisible();
+                                if (dataUrl) {
+                                    // Trigger Download
+                                    const link = document.createElement('a');
+                                    link.href = dataUrl;
+                                    link.download = `screenshot-${Date.now()}.png`;
+                                    link.click();
+                                }
+                            } catch (e) {
+                                console.error("Screenshot failed", e);
+                            }
+                        }} />
                         <MenuItem label="Inspect Element" onClick={() => { /* Handle inspect */ }} />
                     </>
                 )}

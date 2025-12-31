@@ -63,3 +63,18 @@ npm run build
 *   `src/renderer`: React UI frontend.
     *   `src/renderer/src/components`: UI Atoms (Graphs, Bars).
     *   `src/renderer/src/context`: State Management (Reducer).
+
+## ❓ Troubleshooting
+
+### "Underlay is damaged and can't be opened" on macOS
+
+If you see this error after downloading or moving the app to another Mac, it is due to macOS Gatekeeper checking for a valid Apple Developer Certificate. Since this is an open-source development build, it may not be signed.
+
+**Fix:**
+Run the following command in your Terminal to remove the quarantine attribute:
+
+```bash
+xattr -cr /Applications/Underlay.app
+```
+
+*(Ensure the path matches where you installed the app, e.g., `/Applications/Underlay.app`)*

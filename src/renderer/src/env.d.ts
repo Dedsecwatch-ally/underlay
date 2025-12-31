@@ -34,6 +34,7 @@ interface Window {
         };
         privacy: {
             onTrackerBlocked: (callback: (data: any) => void) => () => void;
+            onTrackerBlockedBatch: (callback: (batch: any[]) => void) => () => void;
             onCookieDetected: (callback: (data: any) => void) => () => void;
             onFingerprintAttempt: (callback: (data: any) => void) => () => void;
             toggleShield: (active: boolean) => void;
@@ -61,7 +62,18 @@ interface Window {
         cpp: {
             getMessage: () => Promise<string>;
         };
+        onboarding: {
+            checkStatus: () => Promise<boolean>;
+            complete: () => Promise<void>;
+        };
     }
+
+    // Separately exposed namespace
+    underlay: {
+        screenshot: {
+            captureVisible: () => Promise<string>;
+        };
+    };
 }
 
 interface NetworkRequest {

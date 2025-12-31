@@ -50,6 +50,10 @@ export const getPlatformElectron = () => {
             },
             ui: {
                 onContextMenu: (_cb: any) => { return () => { }; }
+            },
+            onboarding: {
+                checkStatus: async () => true, // On mobile/web, assume onboarding done or not needed for now
+                complete: async () => { }
             }
         };
     }

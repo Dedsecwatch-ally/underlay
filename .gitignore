@@ -11,3 +11,6 @@ test-results/
 .DS_Store
 .env
 *.log
+firefox-reference/
+
+build_log*.txt

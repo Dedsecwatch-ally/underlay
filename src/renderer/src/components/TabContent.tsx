@@ -1,6 +1,9 @@
 import React, { useEffect, useRef } from 'react';
 import { isElectron, isMobile } from '../utils/PlatformUtils';
 
+import { Readability } from '@mozilla/readability';
+import { ReaderView } from './ReaderView';
+
 interface TabContentProps {
     id: string;
     url: string;
@@ -20,7 +23,12 @@ interface TabContentProps {
     onProfileDetected?: (profile: { name: string; email: string; avatar: string }) => void;
     onMediaStartedPlaying?: () => void;
     onMediaPaused?: () => void;
+
     onWebviewReady?: (webview: any) => void;
+    // Reader Mode
+    readerActive?: boolean;
+    readerContent?: any;
+    onReaderParsed?: (data: any) => void;
 }
 
 export const TabContent: React.FC<TabContentProps> = ({
@@ -42,7 +50,11 @@ export const TabContent: React.FC<TabContentProps> = ({
     onProfileDetected,
     onMediaStartedPlaying,
     onMediaPaused,
-    onWebviewReady
+
+    onWebviewReady,
+    readerActive,
+    readerContent,
+    onReaderParsed
 }) => {
     const [initialUrl] = React.useState(url);
     const webviewRef = useRef<any>(null);
@@ -61,55 +73,143 @@ export const TabContent: React.FC<TabContentProps> = ({
         }
     }, [isActive, isSuspended]);
 
+    // Reader Mode Logic
+    useEffect(() => {
+        if (readerActive && !readerContent && webviewRef.current) {
+            try {
+                // 1. Get HTML from Webview
+                webviewRef.current.executeJavaScript('document.documentElement.outerHTML')
+                    .then((html: string) => {
+                        // 2. Parse in Renderer
+                        const doc = new DOMParser().parseFromString(html, 'text/html');
+                        const reader = new Readability(doc);
+                        const article = reader.parse();
+
+                        if (article && onReaderParsed) {
+                            onReaderParsed(article);
+                        }
+                    })
+                    .catch((err: any) => console.error("Reader Mode Parse Error:", err));
+            } catch (e) { }
+        }
+    }, [readerActive, readerContent]);
+
+    // Reader Mode Logic
+    useEffect(() => {
+        if (readerActive && !readerContent && webviewRef.current) {
+            try {
+                // 1. Get HTML from Webview
+                webviewRef.current.executeJavaScript('document.documentElement.outerHTML')
+                    .then((html: string) => {
+                        // 2. Parse in Renderer
+                        const doc = new DOMParser().parseFromString(html, 'text/html');
+                        const reader = new Readability(doc);
+                        const article = reader.parse();
+
+                        if (article && onReaderParsed) {
+                            onReaderParsed(article);
+                        }
+                    })
+                    .catch((err: any) => console.error("Reader Mode Parse Error:", err));
+            } catch (e) { }
+        }
+    }, [readerActive, readerContent]);
+
+
+    // Event Driven Navigation (Robustness) - Handles User Input (Enter, Bookmarks)
+    useEffect(() => {
+        const handleLoadUrl = (e: CustomEvent) => {
+            if (e.detail.id === id && webviewRef.current) {
+                try {
+                    const target = e.detail.url;
+                    // Only load if it's actually different to prevent reload loops
+                    if (webviewRef.current.getURL() !== target) {
+                        webviewRef.current.loadURL(target);
+                    }
+                } catch (err) { }
+            }
+        };
+        window.addEventListener('browser-load-url', handleLoadUrl as any);
+        return () => window.removeEventListener('browser-load-url', handleLoadUrl as any);
+    }, [id]);
+
+    // Force Initial Load if SRC fails, but DO NOT SYNC continuously (prevents race conditions with internal navs)
+    useEffect(() => {
+        if (webviewRef.current && url && url !== 'underlay://newtab') {
+            try {
+                const current = webviewRef.current.getURL();
+                // Only load if we are on blank (fresh tab), otherwise trust the webview's internal state
+                if (current === 'about:blank') {
+                    webviewRef.current.loadURL(url);
+                }
+            } catch (e) { }
+        }
+    }, [id]); // Check on mount/id change, not on every URL change
+
+
     // ELECTRON IMPLEMENTATION (<webview>)
     if (isElectron) {
         if (isSuspended) return null;
 
         return (
-            <webview
-                // @ts-ignore
-                ref={(ref: any) => {
-                    if (ref) {
-                        webviewRef.current = ref;
-                        if (onWebviewReady) onWebviewReady(ref);
+            <>
+                <webview
+                    // @ts-ignore
+                    ref={(ref: any) => {
+                        if (ref) {
+                            webviewRef.current = ref;
+                            if (onWebviewReady) onWebviewReady(ref);
 
-                        // Attach listeners once
-                        if (!ref.dataset.attached) {
-                            ref.dataset.attached = "true";
+                            // Attach listeners once
+                            if (!ref.dataset.attached) {
+                                ref.dataset.attached = "true";
 
-                            ref.addEventListener('crashed', onCrashed);
-                            ref.addEventListener('unresponsive', onUnresponsive);
-                            ref.addEventListener('did-fail-load', onDidFailLoad);
+                                ref.addEventListener('crashed', onCrashed);
+                                ref.addEventListener('unresponsive', onUnresponsive);
+                                ref.addEventListener('did-fail-load', (e: any) => {
+                                    if (onDidFailLoad) onDidFailLoad();
+                                });
 
-                            ref.addEventListener('did-start-loading', () => {
-                                if (onDidStartLoading) onDidStartLoading();
-                                // Inject base CSS for dark mode
-                                ref.insertCSS('html, body { background-color: #0f0f11; }');
-                            });
+                                ref.addEventListener('did-start-loading', () => {
+                                    if (onDidStartLoading) onDidStartLoading();
+                                    // Inject base CSS for dark mode
+                                    ref.insertCSS('html, body { background-color: #0f0f11; }');
+                                });
 
-                            ref.addEventListener('did-stop-loading', () => {
-                                const currentUrl = ref.getURL();
-                                const currentTitle = ref.getTitle();
-                                if (currentUrl !== 'about:blank' && onDidStopLoading) {
-                                    onDidStopLoading({ url: currentUrl, title: currentTitle });
+                                // CRITICAL: Ensure initial URL loads (sometimes src attribute is ignored in complex layouts)
+                                if (initialUrl && initialUrl !== 'about:blank' && initialUrl !== 'underlay://newtab') {
+                                    setTimeout(() => {
+                                        if (ref.getURL() === 'about:blank') {
+                                            ref.loadURL(initialUrl);
+                                        }
+                                    }, 100);
                                 }
-                            });
 
-                            ref.addEventListener('did-navigate', (e: any) => {
-                                if (e.url !== 'about:blank' && onDidNavigate) onDidNavigate(e.url);
-                            });
+                                ref.addEventListener('did-stop-loading', () => {
+                                    const currentUrl = ref.getURL();
+                                    const currentTitle = ref.getTitle();
+                                    if (currentUrl !== 'about:blank' && onDidStopLoading) {
+                                        onDidStopLoading({ url: currentUrl, title: currentTitle });
+                                    }
+                                });
 
-                            ref.addEventListener('did-navigate-in-page', (e: any) => {
-                                if (e.url !== 'about:blank' && onDidNavigate) onDidNavigate(e.url);
-                            });
+                                ref.addEventListener('did-navigate', (e: any) => {
+                                    if (e.url !== 'about:blank' && onDidNavigate) onDidNavigate(e.url);
+                                });
 
-                            ref.addEventListener('dom-ready', () => {
-                                if (onDomReady) onDomReady();
+                                ref.addEventListener('did-navigate-in-page', (e: any) => {
+                                    if (e.url !== 'about:blank' && onDidNavigate) onDidNavigate(e.url);
+                                });
 
-                                // Google Profile Scraping
-                                const u = ref.getURL();
-                                if ((u.includes('google.com') || u.includes('youtube.com')) && !isIncognito && onProfileDetected) {
-                                    ref.executeJavaScript(`
+
+
+                                ref.addEventListener('dom-ready', () => {
+                                    if (onDomReady) onDomReady();
+
+                                    // Google Profile Scraping
+                                    const u = ref.getURL();
+                                    if ((u.includes('google.com') || u.includes('youtube.com')) && !isIncognito && onProfileDetected) {
+                                        ref.executeJavaScript(`
                                         (function() {
                                             return new Promise((resolve) => {
                                                 const findProfile = () => {
@@ -164,97 +264,110 @@ export const TabContent: React.FC<TabContentProps> = ({
                                             });
                                         })()
                                     `)
-                                        .then((result: any) => {
-                                            if (result && result.name) {
-                                                console.log("Profile Detected:", result);
-                                                onProfileDetected(result);
-                                            }
-                                        })
-                                        .catch((err: any) => { console.error("Profile scrape error:", err); });
-                                }
-                            });
+                                            .then((result: any) => {
+                                                if (result && result.name) {
+                                                    console.log("Profile Detected:", result);
+                                                    onProfileDetected(result);
+                                                }
+                                            })
+                                            .catch((err: any) => { console.error("Profile scrape error:", err); });
+                                    }
+                                });
 
-                            ref.addEventListener('page-title-updated', (e: any) => {
-                                if (onPageTitleUpdated) onPageTitleUpdated(e.title);
-                            });
+                                ref.addEventListener('page-title-updated', (e: any) => {
+                                    if (onPageTitleUpdated) onPageTitleUpdated(e.title);
+                                });
 
-                            ref.addEventListener('page-favicon-updated', (e: any) => {
-                                if (e.favicons && e.favicons.length > 0 && onPageFaviconUpdated) {
-                                    onPageFaviconUpdated(e.favicons[0]);
-                                }
-                            });
+                                ref.addEventListener('page-favicon-updated', (e: any) => {
+                                    if (e.favicons && e.favicons.length > 0 && onPageFaviconUpdated) {
+                                        onPageFaviconUpdated(e.favicons[0]);
+                                    }
+                                });
 
-                            ref.addEventListener('new-window', (e: any) => {
-                                const { url, disposition, options } = e;
-                                console.log(`[NewWindow] URL: ${url}, Disposition: ${disposition}`);
+                                ref.addEventListener('new-window', (e: any) => {
+                                    const { url, disposition, options } = e;
 
-                                // POPUP DETECTION
-                                // 1. Check explicit URL whitelist (Auth providers)
-                                const isKnownAuth =
-                                    url.includes('accounts.google.com') ||
-                                    url.includes('google.com/o/oauth2') ||
-                                    url.includes('facebook.com/v') ||
-                                    url.includes('appleid.apple.com') ||
-                                    url.includes('auth') ||
-                                    url.includes('oauth') ||
-                                    url.includes('login') ||
-                                    url.includes('openid');
 
-                                // 2. Check Disposition implies Popup
-                                // 'new-window' usually means window.open with features (width/height)
-                                // 'foreground-tab' means window.open with just _blank
-                                // We want to allow specific popups to stay as native windows for Opener access
-                                if (disposition === 'new-window' || isKnownAuth) {
-                                    console.log("-> Allowing as Native Popup (Opener Preserved)");
-                                    return; // Allow native window
-                                }
 
-                                // Otherwise, force into our Tab System
-                                e.preventDefault();
-                                if (onNewWindow) onNewWindow(e.url);
-                            });
+                                    // POPUP DETECTION
+                                    // 1. Check explicit URL whitelist (Auth providers)
+                                    const isKnownAuth =
+                                        url.includes('accounts.google.com') ||
+                                        url.includes('google.com/o/oauth2') ||
+                                        url.includes('facebook.com/v') ||
+                                        url.includes('appleid.apple.com') ||
+                                        url.includes('auth') ||
+                                        url.includes('oauth') ||
+                                        url.includes('login') ||
+                                        url.includes('openid');
 
-                            // Forward keyboard shortcuts
-                            ref.addEventListener('before-input-event', (e: any) => {
-                                const { type, key, meta, control, shift } = e;
-                                if (type !== 'keyDown') return;
+                                    // 2. Check Disposition implies Popup
+                                    // 'new-window' usually means window.open with features (width/height) or just a generic open
+                                    // We STRICTLY only allow native popups if they are Auth or have explicit dimensions (login prompts)
+                                    const hasDimensions = options && (options.width || options.height);
 
-                                const isCmd = meta || control;
-                                const shortcuts = ['k', 't', 'w', 'l', 'r', '[', ']', 'ArrowLeft', 'ArrowRight'];
-                                if (isCmd && (shortcuts.includes(key) || (key === 'n' && shift))) {
-                                    const event = new KeyboardEvent('keydown', {
-                                        key: key,
-                                        metaKey: meta,
-                                        ctrlKey: control,
-                                        shiftKey: shift,
-                                        bubbles: true
-                                    });
-                                    window.dispatchEvent(event);
-                                }
-                            });
-                            // Media Events for Background Playback Optimization
-                            ref.addEventListener('media-started-playing', () => {
-                                if (onMediaStartedPlaying) onMediaStartedPlaying();
-                            });
-                            ref.addEventListener('media-paused', () => {
-                                if (onMediaPaused) onMediaPaused();
-                            });
+                                    if (isKnownAuth || (disposition === 'new-window' && hasDimensions)) {
+                                        console.log("-> Allowing as Native Popup (Auth or Dimensions)");
+                                        return; // Allow native window
+                                    }
+
+                                    // Otherwise, force into our Tab System (e.g. "Visit Site" buttons)
+                                    e.preventDefault();
+                                    if (onNewWindow) onNewWindow(e.url);
+                                });
+
+                                // Forward keyboard shortcuts
+                                ref.addEventListener('before-input-event', (e: any) => {
+                                    const { type, key, meta, control, shift } = e;
+                                    if (type !== 'keyDown') return;
+
+                                    const isCmd = meta || control;
+                                    const shortcuts = ['k', 't', 'w', 'l', 'r', '[', ']', 'ArrowLeft', 'ArrowRight'];
+                                    if (isCmd && (shortcuts.includes(key) || (key === 'n' && shift))) {
+                                        const event = new KeyboardEvent('keydown', {
+                                            key: key,
+                                            metaKey: meta,
+                                            ctrlKey: control,
+                                            shiftKey: shift,
+                                            bubbles: true
+                                        });
+                                        window.dispatchEvent(event);
+                                    }
+                                });
+                                // Media Events for Background Playback Optimization
+                                ref.addEventListener('media-started-playing', () => {
+                                    if (onMediaStartedPlaying) onMediaStartedPlaying();
+                                });
+                                ref.addEventListener('media-paused', () => {
+                                    if (onMediaPaused) onMediaPaused();
+                                });
+                            }
                         }
-                    }
-                }}
-                src={initialUrl}
-                className="w-full h-full non-draggable"
-                style={{
-                    backgroundColor: '#0f0f11',
-                    border: 'none',
-                    visibility: isActive ? 'visible' : 'hidden'
-                }}
-                allowpopups
-                partition={isIncognito ? 'underlay-incognito' : 'persist:underlay'}
-                webpreferences="contextIsolation=yes, sandbox=yes, nodeIntegration=no, enableRemoteModule=no, backgroundThrottling=yes, plugins=yes, nativeWindowOpen=yes"
-            />
+                    }}
+                    src={initialUrl}
+                    className="w-full h-full non-draggable"
+                    style={{
+                        backgroundColor: '#0f0f11',
+                        border: 'none',
+                        visibility: isActive ? 'visible' : 'hidden'
+                    }}
+                    allowpopups
+                    partition={isIncognito ? 'underlay-incognito' : 'persist:underlay'}
+                    useragent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.6778.86 Safari/537.36"
+                    webpreferences="contextIsolation=yes, sandbox=no, nodeIntegration=no, enableRemoteModule=no, backgroundThrottling=no, plugins=yes, nativeWindowOpen=yes, webgl=yes, experimentalFeatures=yes, safeDialogs=yes, autoplayPolicy=no-user-gesture-required, scrollBounce=yes"
+                />
+                {/* Reader Mode Overlay */}
+                <ReaderView
+                    data={readerContent}
+                    isVisible={!!readerActive}
+                    onClose={() => {
+                        window.dispatchEvent(new CustomEvent('close-reader-mode', { detail: { id } }));
+                    }}
+                />
+            </>
         );
     }
+
 
     // MOBILE / WEB IMPLEMENTATION (<iframe>)
     if (isSuspended) return null;

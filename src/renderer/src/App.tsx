@@ -1,9 +1,10 @@
 import React from 'react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { BrowserProvider, useBrowser } from './context/BrowserContext';
 import { Titlebar } from './components/Titlebar';
 import { AddressBar } from './components/AddressBar';
-import { IntrospectionPanel } from './components/IntrospectionPanel';
+import { Toolbar } from './components/Toolbar';
+
 // Lazy load heavy overlays
 const HistoryOverlay = React.lazy(() => import('./components/HistoryOverlay').then(module => ({ default: module.HistoryOverlay })));
 const SettingsOverlay = React.lazy(() => import('./components/SettingsOverlay').then(module => ({ default: module.SettingsOverlay })));
@@ -12,7 +13,7 @@ const ProfileOverlay = React.lazy(() => import('./components/ProfileOverlay').th
 const DownloadsOverlay = React.lazy(() => import('./components/DownloadsOverlay').then(module => ({ default: module.DownloadsOverlay })));
 import { DownloadToast } from './components/DownloadToast';
 
-import { Activity, Clock, Settings, VenetianMask, Download as DownloadIcon } from 'lucide-react';
+import { Activity } from 'lucide-react';
 import { useFPS } from './hooks/useFPS';
 import { useMobileGestures } from './hooks/useMobileGestures';
 import { NewTabPage } from './components/NewTabPage';
@@ -27,13 +28,27 @@ import { PermissionOverlay } from './components/PermissionOverlay';
 import { ContextMenu } from './components/ContextMenu';
 import { CrashedTab } from './components/CrashedTab';
 import { WallpaperPreloader } from './components/WallpaperPreloader';
+import { Onboarding } from './components/Onboarding';
+import { LibraryPage } from './pages/LibraryPage';
 
-function BrowserShell() {
+export const BrowserShell: React.FC = () => {
     const { state, dispatch } = useBrowser();
     const fps = useFPS();
     useMobileGestures(); // Enable Swipe Gestures on Mobile
-    const [showUnderlay, setShowUnderlay] = React.useState(false);
+
     const [showHistory, setShowHistory] = React.useState(false);
+
+    // Onboarding State
+    const [isOnboarding, setIsOnboarding] = React.useState<boolean | null>(null);
+
+    React.useEffect(() => {
+        const check = async () => {
+            const electron = getPlatformElectron();
+            const done = await electron.onboarding.checkStatus();
+            setIsOnboarding(!done);
+        };
+        check();
+    }, []);
     const [showSettings, setShowSettings] = React.useState(false);
     const [showPalette, setShowPalette] = React.useState(false);
     const [showProfile, setShowProfile] = React.useState(false);
@@ -114,6 +129,16 @@ function BrowserShell() {
                 e.preventDefault();
                 dispatch({ type: 'NEW_TAB', payload: { incognito: true } });
             }
+            // Library Shortcut (Firefox Style)
+            if (isCmd && e.shiftKey && (e.key === 'o' || e.key === 'O')) {
+                e.preventDefault();
+                dispatch({ type: 'NEW_TAB', payload: { url: 'underlay://library?view=history' } });
+            }
+            // Customize Toolbar Shortcut (temporary development trigger)
+            if (isCmd && e.altKey && (e.key === 'c' || e.key === 'C')) {
+                e.preventDefault();
+                dispatch({ type: 'TOGGLE_CUSTOMIZE_TOOLBAR' });
+            }
             if (isCmd && e.key === 'w') {
                 e.preventDefault();
                 const active = state.activeTabId;
@@ -160,9 +185,10 @@ function BrowserShell() {
             }
 
             // UI Toggle Commands
-            if (state.activeCommand.type === 'toggleDevTools') setShowUnderlay(p => !p);
             if (state.activeCommand.type === 'toggleHistory') setShowHistory(p => !p);
             if (state.activeCommand.type === 'toggleSettings') setShowSettings(p => !p);
+            if (state.activeCommand.type === 'toggleDownloads') setShowDownloads(p => !p);
+            if (state.activeCommand.type === 'toggleProfile') setShowProfile(p => !p);
 
             dispatch({ type: 'CLEAR_COMMAND' });
         }
@@ -197,24 +223,29 @@ function BrowserShell() {
         return cleanupDownloads;
     }, []);
 
-    // Imperative Navigation Handler (Event Driven - No Loop)
+    // Privacy Shield Listener (Tracker Blocking)
     React.useEffect(() => {
-        const handleLoadUrl = (e: CustomEvent) => {
-            const { id, url } = e.detail;
-            const webview = webviewRefs.current[id];
-            if (webview) {
-                try {
-                    console.log(`[BrowserShell] Imperative Load: ${url}`);
-                    webview.loadURL(url);
-                } catch (err) {
-                    console.error("Failed to load URL imperatively", err);
-                }
-            }
-        };
+        if (!window.electron?.privacy?.onTrackerBlockedBatch) return;
 
-        window.addEventListener('browser-load-url', handleLoadUrl as any);
-        return () => window.removeEventListener('browser-load-url', handleLoadUrl as any);
+        const cleanup = window.electron.privacy.onTrackerBlockedBatch((batch: any[]) => {
+            // Determine updates
+            batch.forEach(item => {
+                if (!item.tabId) return;
+                Object.keys(webviewRefs.current).forEach(tabId => {
+                    try {
+                        const wv = webviewRefs.current[tabId];
+                        // Match by webContentsID
+                        if (wv && wv.getWebContentsId && wv.getWebContentsId() === item.tabId) {
+                            dispatch({ type: 'ADD_BLOCKED_ITEMS', payload: { id: tabId, items: [item] } });
+                        }
+                    } catch (e) { }
+                });
+            });
+        });
+        return cleanup;
     }, []);
+
+
 
     // Auto-Suspend Tabs (Memory Optimization)
     React.useEffect(() => {
@@ -240,8 +271,21 @@ function BrowserShell() {
     }, [state.tabs, state.activeTabId, state.settings.lowPowerMode]);
 
 
+    if (isOnboarding === null) return null; // Loading state
+
     return (
         <div className="h-full flex flex-col bg-underlay-bg text-underlay-text font-sans relative">
+            <AnimatePresence>
+                {isOnboarding && (
+                    <motion.div
+                        initial={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="fixed inset-0 z-[200]"
+                    >
+                        <Onboarding onComplete={() => setIsOnboarding(false)} />
+                    </motion.div>
+                )}
+            </AnimatePresence>
             {/* Overlays moved to bottom for Z-Index Stacking */}
 
             <DownloadToast latestDownload={latestDownload} />
@@ -250,62 +294,11 @@ function BrowserShell() {
             <WallpaperPreloader />
 
             <Titlebar />
-            <div className="flex relative z-50">
-                <div className="flex-1">
-                    <AddressBar />
-                </div>
-                <div className="flex items-center gap-1.5 px-3 border-l border-white/5 h-12 non-draggable">
-                    <motion.button
-                        onClick={() => setShowDownloads(!showDownloads)}
-                        animate={isDownloading ? { y: [0, -2, 0], color: '#60a5fa' } : { y: 0, color: '#ffffff66' }}
-                        transition={isDownloading ? { repeat: Infinity, duration: 2 } : {}}
-                        className={`w-9 h-9 flex items-center justify-center rounded-lg transition-all duration-200 active:scale-95 relative ${showDownloads ? 'bg-white/10 text-white shadow-[0_0_10px_rgba(255,255,255,0.1)]' : 'hover:text-white hover:bg-white/5'}`}
-                        title="Downloads"
-                    >
-                        <DownloadIcon size={18} strokeWidth={1.5} />
-                        {isDownloading && (
-                            <span className="absolute top-2 right-2 w-1.5 h-1.5 bg-blue-500 rounded-full border border-[#0f0f11]"></span>
-                        )}
-                    </motion.button>
-                    <button
-                        onClick={() => setShowHistory(!showHistory)}
-                        className={`w-9 h-9 flex items-center justify-center rounded-lg transition-all duration-200 active:scale-95 ${showHistory ? 'bg-white/10 text-white shadow-[0_0_10px_rgba(255,255,255,0.1)]' : 'text-white/40 hover:text-white hover:bg-white/5'}`}
-                        title="History & Bookmarks"
-                    >
-                        <Clock size={18} strokeWidth={1.5} />
-                    </button>
-                    <button
-                        onClick={() => setShowSettings(!showSettings)}
-                        className={`w-9 h-9 flex items-center justify-center rounded-lg transition-all duration-200 active:scale-95 ${showSettings ? 'bg-white/10 text-white shadow-[0_0_10px_rgba(255,255,255,0.1)]' : 'text-white/40 hover:text-white hover:bg-white/5'}`}
-                        title="Settings"
-                    >
-                        <Settings size={18} strokeWidth={1.5} />
-                    </button>
-                    <button
-                        onClick={() => dispatch({ type: 'NEW_TAB', payload: { incognito: true } })}
-                        className="w-9 h-9 flex items-center justify-center rounded-lg text-white/40 hover:text-white hover:bg-white/5 transition-all duration-200 active:scale-95 hover:shadow-[0_0_15px_rgba(0,0,0,0.5)]"
-                        title="New Incognito Tab"
-                    >
-                        <VenetianMask size={18} strokeWidth={1.5} />
-                    </button>
 
-                </div>
-                <div className="px-3 border-l border-white/5 h-12 flex items-center non-draggable">
-                    <button
-                        onClick={() => setShowProfile(!showProfile)}
-                        className={`w-8 h-8 flex items-center justify-center rounded-full transition-all duration-200 active:scale-95 overflow-hidden border ${showProfile ? 'border-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.5)]' : 'border-transparent bg-white/10 hover:bg-white/20'}`}
-                        title="User Profile"
-                    >
-                        {state.profile?.avatar ? (
-                            <img src={state.profile.avatar} alt="Profile" className="w-full h-full object-cover" />
-                        ) : (
-                            <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-blue-500 to-purple-600 text-white font-bold text-xs">
-                                {state.profile?.name?.[0] || 'G'}
-                            </div>
-                        )}
-                    </button>
-                </div>
-            </div>
+            {/* Main Toolbar handling all navigation and inputs */}
+            <Toolbar />
+
+            {/* Content Area */}
 
             <div className="flex-1 relative flex overflow-hidden">
                 <div className="flex-1 relative bg-[#0f0f11]">
@@ -325,7 +318,15 @@ function BrowserShell() {
                         >
 
 
-                            {tab.url === 'underlay://newtab' ? (
+                            {tab.url.startsWith('underlay://library') ? (
+                                <LibraryPage
+                                    initialView={
+                                        tab.url.includes('bookmarks') ? 'bookmarks' :
+                                            tab.url.includes('downloads') ? 'downloads' :
+                                                'history'
+                                    }
+                                />
+                            ) : tab.url === 'underlay://newtab' ? (
                                 <NewTabPage
                                     onNavigate={(url: string) => dispatch({ type: 'LOAD_URL', payload: { id: tab.id, url } })}
                                     incognito={tab.incognito}
@@ -352,7 +353,7 @@ function BrowserShell() {
                                     onDidStartLoading={() => dispatch({ type: 'UPDATE_TAB', payload: { id: tab.id, data: { status: 'loading' } } })}
                                     onDidStopLoading={({ url, title }) => {
                                         dispatch({ type: 'UPDATE_TAB', payload: { id: tab.id, data: { status: 'ready', title, url } } });
-                                        if (!tab.incognito) {
+                                        if (!tab.incognito && !url.includes('browserbench.org')) {
                                             dispatch({ type: 'ADD_HISTORY', payload: { url, title } });
                                         }
                                     }}
@@ -382,6 +383,9 @@ function BrowserShell() {
                                     onWebviewReady={(webview) => {
                                         webviewRefs.current[tab.id] = webview;
                                     }}
+                                    readerActive={!!tab.readerActive}
+                                    readerContent={tab.readerContent}
+                                    onReaderParsed={(data) => dispatch({ type: 'UPDATE_TAB', payload: { id: tab.id, data: { readerContent: data } } })}
                                 />
                             )}
                         </div>
@@ -393,7 +397,6 @@ function BrowserShell() {
                         </div>
                     )}
                 </div>
-                <IntrospectionPanel isOpen={showUnderlay} />
             </div>
 
             <React.Suspense fallback={null}>

@@ -13,6 +13,17 @@ export interface Tab {
     suspended?: boolean;
     lastAccessed?: number;
     audible?: boolean;
+    readerActive?: boolean;
+    readerContent?: any;
+    blockedStats?: {
+        ads: number;
+        trackers: number;
+        fingerprinters: number;
+        cryptominers: number;
+        social: number;
+        history: Array<{ url: string; domain: string; type: string; timestamp: number }>;
+    };
+    webContentsId?: number; // Main Process ID for mapping
 }
 
 export interface HistoryEntry {
@@ -55,7 +66,7 @@ export interface UserProfile {
     isAuthenticated: boolean;
 }
 
-export type CommandType = 'goBack' | 'goForward' | 'reload' | 'stop' | 'focusAddressBar' | 'toggleDevTools' | 'toggleHistory' | 'toggleSettings';
+export type CommandType = 'goBack' | 'goForward' | 'reload' | 'stop' | 'focusAddressBar' | 'toggleDevTools' | 'toggleHistory' | 'toggleSettings' | 'toggleDownloads' | 'toggleProfile';
 
 export interface BrowserState {
     tabs: Tab[];
@@ -70,6 +81,8 @@ export interface BrowserState {
         theme: 'dark' | 'light' | 'system';
     };
     profile: UserProfile;
+    toolbarLayout: string[];
+    isCustomizingToolbar: boolean;
 
     // Actions
     addTab: (url?: string, incognito?: boolean) => void;
@@ -90,6 +103,10 @@ export interface BrowserState {
     updateDownload: (id: string, data: Partial<DownloadItem>) => void;
     setSetting: (key: string, value: any) => void;
     updateProfile: (data: Partial<UserProfile>) => void;
+    addBlockedItems: (id: string, items: any[]) => void;
+    setToolbarLayout: (layout: string[]) => void;
+    toggleCustomizeToolbar: () => void;
+    resetToolbarLayout: () => void;
 }
 
 export const useBrowserStore = create<BrowserState>()(
@@ -103,6 +120,8 @@ export const useBrowserStore = create<BrowserState>()(
             downloads: [],
             settings: { lowPowerMode: false, theme: 'dark' },
             profile: { name: 'Guest', email: '', isAuthenticated: false },
+            toolbarLayout: ['back', 'forward', 'reload', 'urlbar', 'downloads', 'history', 'settings', 'incognito', 'profile'],
+            isCustomizingToolbar: false,
 
             addTab: (url = 'underlay://newtab', incognito = false) => {
                 const newId = Math.random().toString(36).substr(2, 9);
@@ -236,7 +255,40 @@ export const useBrowserStore = create<BrowserState>()(
 
             updateProfile: (data) => set((state) => ({
                 profile: { ...state.profile, ...data }
-            }))
+            })),
+
+            addBlockedItems: (id, items) => set((state) => {
+                const tabIndex = state.tabs.findIndex(t => t.id === id);
+                if (tabIndex === -1) return state;
+
+                const currentTab = state.tabs[tabIndex];
+                const stats = currentTab.blockedStats || {
+                    ads: 0, trackers: 0, fingerprinters: 0, cryptominers: 0, social: 0, history: []
+                };
+
+                const newStats = { ...stats, history: [...stats.history] };
+
+                items.forEach(item => {
+                    if (item.type === 'Ad') newStats.ads++;
+                    else if (item.type === 'Tracker') newStats.trackers++;
+                    else if (item.type === 'Fingerprinter') newStats.fingerprinters++;
+                    else if (item.type === 'Cryptominer') newStats.cryptominers++;
+                    else if (item.type === 'Social') newStats.social++;
+
+                    // Add to history (limit size to prevent bloating)
+                    newStats.history.push({ url: item.url, domain: item.domain, type: item.type, timestamp: item.timestamp });
+                    if (newStats.history.length > 50) newStats.history.shift();
+                });
+
+                const newTabs = [...state.tabs];
+                newTabs[tabIndex] = { ...currentTab, blockedStats: newStats };
+
+                return { tabs: newTabs };
+            }),
+
+            setToolbarLayout: (layout) => set({ toolbarLayout: layout }),
+            toggleCustomizeToolbar: () => set((state) => ({ isCustomizingToolbar: !state.isCustomizingToolbar })),
+            resetToolbarLayout: () => set({ toolbarLayout: ['back', 'forward', 'reload', 'urlbar', 'downloads', 'history', 'settings', 'incognito', 'profile'] }),
 
         }),
         {
@@ -248,6 +300,7 @@ export const useBrowserStore = create<BrowserState>()(
                 passwords: state.passwords,
                 profile: state.profile,
                 settings: state.settings,
+                toolbarLayout: state.toolbarLayout,
                 // Persist only non-incognito tabs
                 tabs: state.tabs.filter(t => !t.incognito),
                 activeTabId: state.tabs.some(t => !t.incognito && t.id === state.activeTabId) ? state.activeTabId : undefined

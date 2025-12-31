@@ -10,7 +10,7 @@ export type Action =
     | { type: 'CLOSE_TAB'; payload: { id: string } }
     | { type: 'SWITCH_TAB'; payload: { id: string } }
     | { type: 'UPDATE_TAB'; payload: { id: string; data: Partial<Tab> } }
-    | { type: 'TRIGGER_COMMAND'; payload: 'goBack' | 'goForward' | 'reload' | 'stop' | 'focusAddressBar' | 'toggleDevTools' | 'toggleHistory' | 'toggleSettings' }
+    | { type: 'TRIGGER_COMMAND'; payload: 'goBack' | 'goForward' | 'reload' | 'stop' | 'focusAddressBar' | 'toggleDevTools' | 'toggleHistory' | 'toggleSettings' | 'toggleDownloads' | 'toggleProfile' }
     | { type: 'LOAD_URL'; payload: { id: string; url: string } }
     | { type: 'CLEAR_COMMAND' }
     | { type: 'CLEAR_HISTORY' }
@@ -23,7 +23,11 @@ export type Action =
     | { type: 'IMPORT_BOOKMARKS'; payload: { bookmarks: Array<{ title: string, url: string }> } }
     | { type: 'UPDATE_DOWNLOAD'; payload: Partial<DownloadItem> & { id: string } }
     | { type: 'SET_SETTING'; payload: { key: string, value: any } }
-    | { type: 'UPDATE_PROFILE'; payload: Partial<UserProfile> };
+    | { type: 'UPDATE_PROFILE'; payload: Partial<UserProfile> }
+    | { type: 'ADD_BLOCKED_ITEMS'; payload: { id: string; items: any[] } }
+    | { type: 'SET_TOOLBAR_LAYOUT'; payload: string[] }
+    | { type: 'TOGGLE_CUSTOMIZE_TOOLBAR' }
+    | { type: 'RESET_TOOLBAR_LAYOUT' };
 
 // Dummy Context (not actually used for state, just for Provider strictness if needed)
 const BrowserContext = createContext<any>(null);
@@ -121,6 +125,18 @@ export function useBrowser() {
                 break;
             case 'UPDATE_PROFILE':
                 store.updateProfile(action.payload);
+                break;
+            case 'ADD_BLOCKED_ITEMS':
+                store.addBlockedItems(action.payload.id, action.payload.items);
+                break;
+            case 'SET_TOOLBAR_LAYOUT':
+                store.setToolbarLayout(action.payload);
+                break;
+            case 'TOGGLE_CUSTOMIZE_TOOLBAR':
+                store.toggleCustomizeToolbar();
+                break;
+            case 'RESET_TOOLBAR_LAYOUT':
+                store.resetToolbarLayout();
                 break;
         }
     };

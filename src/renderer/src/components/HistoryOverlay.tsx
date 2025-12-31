@@ -77,6 +77,15 @@ export function HistoryOverlay({ isOpen, onClose }: { isOpen: boolean, onClose: 
                                 onChange={e => setSearch(e.target.value)}
                             />
                         </div>
+                        <button
+                            onClick={() => {
+                                dispatch({ type: 'NEW_TAB', payload: { url: `underlay://library?view=${activeTab}` } });
+                                onClose();
+                            }}
+                            className="text-xs text-white/40 hover:text-white mr-2 transition-colors"
+                        >
+                            Show All
+                        </button>
                         <button onClick={onClose} className="text-white/30 hover:text-white">
                             <X size={16} />
                         </button>
@@ -109,7 +118,11 @@ export function HistoryOverlay({ isOpen, onClose }: { isOpen: boolean, onClose: 
                                                     key={entry.id}
                                                     className="group flex flex-col p-2 hover:bg-white/5 rounded cursor-pointer transition-colors"
                                                     onClick={() => {
-                                                        dispatch({ type: 'NEW_TAB', payload: { url: entry.url } });
+                                                        if (state.activeTabId) {
+                                                            dispatch({ type: 'LOAD_URL', payload: { id: state.activeTabId, url: entry.url } });
+                                                        } else {
+                                                            dispatch({ type: 'NEW_TAB', payload: { url: entry.url } });
+                                                        }
                                                         onClose();
                                                     }}
                                                 >
@@ -121,7 +134,7 @@ export function HistoryOverlay({ isOpen, onClose }: { isOpen: boolean, onClose: 
                                                         </div>
                                                     </div>
                                                     <div
-                                                        className="opacity-0 group-hover:opacity-100 p-1.5 hover:bg-white/10 rounded transition-all text-white/30 hover:text-red-400"
+                                                        className="opacity-50 hover:opacity-100 p-1.5 hover:bg-white/10 rounded transition-all text-white/30 hover:text-red-400"
                                                         onClick={(e) => {
                                                             e.stopPropagation();
                                                             dispatch({ type: 'REMOVE_HISTORY_ITEM', payload: { id: entry.id } });
@@ -146,7 +159,11 @@ export function HistoryOverlay({ isOpen, onClose }: { isOpen: boolean, onClose: 
                                         <div
                                             className="flex flex-col cursor-pointer"
                                             onClick={() => {
-                                                dispatch({ type: 'NEW_TAB', payload: { url: b.url } });
+                                                if (state.activeTabId) {
+                                                    dispatch({ type: 'LOAD_URL', payload: { id: state.activeTabId, url: b.url } });
+                                                } else {
+                                                    dispatch({ type: 'NEW_TAB', payload: { url: b.url } });
+                                                }
                                                 onClose();
                                             }}
                                         >

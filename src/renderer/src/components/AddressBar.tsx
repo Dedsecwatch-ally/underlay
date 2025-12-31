@@ -1,9 +1,10 @@
 import React, { useState, useEffect, KeyboardEvent } from 'react';
 import { useBrowser } from '../context/BrowserContext';
-import { ArrowLeft, ArrowRight, RotateCcw, ShieldCheck, X, Star, VenetianMask } from 'lucide-react';
+import { ArrowLeft, ArrowRight, RotateCcw, ShieldCheck, X, Star, VenetianMask, BookOpen } from 'lucide-react';
 
 import { motion, AnimatePresence } from 'framer-motion';
 import { CertViewer } from './CertViewer';
+import { PrivacyShield } from './PrivacyShield';
 
 export function AddressBar() {
     const { state, dispatch } = useBrowser();
@@ -11,6 +12,7 @@ export function AddressBar() {
     const [inputUrl, setInputUrl] = useState('');
     const [securityState, setSecurityState] = useState<any>(null);
     const [showCertViewer, setShowCertViewer] = useState(false);
+    const [showShield, setShowShield] = useState(false);
     const isLoading = activeTab?.status === 'loading';
 
     const isBookmarked = state.bookmarks.some(b => b.url === activeTab?.url);
@@ -152,23 +154,30 @@ export function AddressBar() {
     }
 
     return (
-        <div className="h-12 bg-underlay-surface border-b border-underlay-border flex items-center px-4 gap-3 z-10 relative overflow-visible">
-            <div className="flex gap-1 text-underlay-text/60 non-draggable">
-                <NavButton icon={<ArrowLeft size={16} />} onClick={() => dispatch({ type: 'TRIGGER_COMMAND', payload: 'goBack' })} />
-                <NavButton icon={<ArrowRight size={16} />} onClick={() => dispatch({ type: 'TRIGGER_COMMAND', payload: 'goForward' })} />
-                {isLoading ? (
-                    <NavButton icon={<X size={16} />} onClick={() => dispatch({ type: 'TRIGGER_COMMAND', payload: 'stop' })} />
-                ) : (
-                    <NavButton icon={<RotateCcw size={16} />} onClick={() => dispatch({ type: 'TRIGGER_COMMAND', payload: 'reload' })} />
-                )}
-            </div>
+        <div className="flex items-center z-10 relative overflow-visible w-full">
 
-            <div className={`flex-1 bg-underlay-bg rounded-md h-8 flex items-center px-2 gap-2 border border-underlay-border focus-within:border-underlay-accent/50 transition-colors shadow-inner relative ${activeTab?.incognito ? 'bg-zinc-900 border-zinc-700 shadow-[0_0_15px_rgba(0,0,0,0.5)]' : ''}`}>
+            {/* Privacy Shield Popover */}
+            <PrivacyShield
+                stats={activeTab?.blockedStats}
+                isVisible={showShield}
+                onClose={() => setShowShield(false)}
+                onToggleProtection={(enabled) => console.log('Toggle Protection:', enabled)} // Placeholder for now
+                protectionEnabled={true}
+            />
+
+            {/* Navigation Buttons Removed - Controlled by Toolbar */}
+
+            <div className={`flex-1 w-full bg-underlay-bg rounded-md h-8 flex items-center px-2 gap-2 border border-underlay-border focus-within:border-underlay-accent/50 transition-colors shadow-inner relative ${activeTab?.incognito ? 'bg-zinc-900 border-zinc-700 shadow-[0_0_15px_rgba(0,0,0,0.5)]' : ''}`}>
                 <div className="flex items-center gap-2 cursor-pointer hover:bg-underlay-text/5 p-1 rounded non-draggable" onClick={() => setShowCertViewer(!showCertViewer)}>
                     {activeTab?.incognito ? (
                         <VenetianMask size={14} className="text-zinc-400" />
                     ) : (
-                        <LockIcon size={14} className={lockColor} />
+                        <div className="flex items-center gap-1" onClick={(e) => { e.stopPropagation(); setShowShield(!showShield); }}>
+                            <ShieldCheck size={14} className={activeTab?.blockedStats && (activeTab.blockedStats.trackers + activeTab.blockedStats.ads) > 0 ? "text-indigo-400" : "text-underlay-text/40"} />
+                            {activeTab?.blockedStats && (activeTab.blockedStats.trackers + activeTab.blockedStats.ads) > 0 && (
+                                <span className="text-[10px] font-bold text-indigo-400">{activeTab.blockedStats.trackers + activeTab.blockedStats.ads}</span>
+                            )}
+                        </div>
                     )}
                     {tlsVersion && !activeTab?.incognito && (
                         <span className="text-[9px] bg-green-500/20 text-green-400 px-1 rounded font-bold">{tlsVersion}</span>
@@ -207,6 +216,18 @@ export function AddressBar() {
                     className={`p-1 rounded-md transition-colors non-draggable ${isBookmarked ? 'text-yellow-400 hover:bg-yellow-400/10' : 'text-underlay-text/20 hover:text-underlay-text/60 hover:bg-underlay-text/5'}`}
                 >
                     <Star size={14} fill={isBookmarked ? "currentColor" : "none"} />
+                </button>
+
+                <button
+                    onClick={() => {
+                        if (activeTab) {
+                            dispatch({ type: 'UPDATE_TAB', payload: { id: activeTab.id, data: { readerActive: !activeTab.readerActive } } });
+                        }
+                    }}
+                    className={`p-1 rounded-md transition-colors non-draggable ${activeTab?.readerActive ? 'text-blue-400 bg-blue-400/10' : 'text-underlay-text/20 hover:text-underlay-text/60 hover:bg-underlay-text/5'}`}
+                    title="Toggle Reader View"
+                >
+                    <BookOpen size={14} />
                 </button>
 
                 {/* Suggestions Dropdown */}
@@ -252,20 +273,5 @@ export function AddressBar() {
     );
 }
 
-function NavButton({ icon, onClick }: { icon: React.ReactNode, onClick?: () => void }) {
-    const handleClick = () => {
-        window.dispatchEvent(new CustomEvent('underlay-trace', { detail: { layer: 'UI', message: 'Click Navigation' } }));
-        onClick?.();
-    };
-    return (
-        <motion.button
-            onClick={handleClick}
-            whileHover={{ scale: 1.1, backgroundColor: "rgba(255, 255, 255, 0.1)" }}
-            whileTap={{ scale: 0.95 }}
-            transition={{ type: "spring", stiffness: 400, damping: 17 }}
-            className="p-1.5 rounded-md transition-colors text-inherit hover:text-underlay-text"
-        >
-            {icon}
-        </motion.button>
-    )
-}
+// NavButton removed
+

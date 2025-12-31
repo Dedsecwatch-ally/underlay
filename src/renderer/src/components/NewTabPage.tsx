@@ -9,6 +9,8 @@ import { usePrivacyStats, formatBytes } from '../hooks/usePrivacyStats';
 
 // ... (keep wallpapers) ...
 import { CUSTOM_WALLPAPERS } from '../constants/wallpapers';
+import { QuickNotesWidget } from './QuickNotesWidget';
+import { WeatherWidget } from './WeatherWidget';
 
 // Animation Variants for Staggered Entrance
 const containerVariants = {
@@ -38,23 +40,14 @@ export function NewTabPage({ onNavigate, incognito }: { onNavigate: (url: string
     // const fps = useFPS(); (Removed)
     const stats = usePrivacyStats();
     const [currentTime, setCurrentTime] = useState(new Date());
-    const [wallpaper, setWallpaper] = useState(() => {
-        // Initial Rotation Logic
-        const storedIndex = localStorage.getItem('wallpaperIndex');
-        let lastIndex = storedIndex ? parseInt(storedIndex, 10) : -1;
+    const [isLowPower, setIsLowPower] = useState(false);
 
-        // Safety check
-        if (isNaN(lastIndex) || lastIndex < -1 || lastIndex >= CUSTOM_WALLPAPERS.length) {
-            lastIndex = -1;
-        }
 
-        const nextIndex = (lastIndex + 1) % CUSTOM_WALLPAPERS.length;
-        localStorage.setItem('wallpaperIndex', nextIndex.toString());
 
-        // Notify global preloader
-        window.dispatchEvent(new CustomEvent('wallpaper-changed', { detail: { index: nextIndex } }));
-
-        return CUSTOM_WALLPAPERS[nextIndex];
+    const [wallpaper] = useState(() => {
+        // Simple Random Rotation on Mount
+        const randomIndex = Math.floor(Math.random() * CUSTOM_WALLPAPERS.length);
+        return CUSTOM_WALLPAPERS[randomIndex];
     });
 
     const [searchQuery, setSearchQuery] = useState('');
@@ -165,10 +158,11 @@ export function NewTabPage({ onNavigate, incognito }: { onNavigate: (url: string
             // ... (existing code)
 
             {/* TOP WIDGETS */}
+            {/* TOP WIDGETS */}
             {!incognito && (
                 <>
                     <GoogleAppsWidget onNavigate={onNavigate} />
-                    <CryptoWidget />
+                    <WeatherWidget />
                 </>
             )}
 
@@ -325,24 +319,28 @@ export function NewTabPage({ onNavigate, incognito }: { onNavigate: (url: string
                         </div>
                     )}
                 </form>
+
             </div>
 
+            {/* QUICK NOTES (Floating) */}
+            {!incognito && <QuickNotesWidget />}
+
             {/* BOTTOM WIDGETS */}
-            {!incognito && (
-                <div className="z-10 relative px-12 pb-6 flex items-end justify-between w-full h-24">
-
-                    {/* PRIVACY STATS BAR (CENTER) */}
-                    <div className="flex items-center gap-8 px-8 py-3 bg-black/40 backdrop-blur-2xl rounded-2xl border border-white/5 mx-auto">
-                        <StatItem label="Bandwidth Saved" value={formatBytes(stats.bandwidthSavedBytes)} color="text-cyan-400" />
-                        <div className="w-[1px] h-8 bg-white/10" />
-                        <StatItem label="Trackers Blocked" value={stats.trackersBlocked.toLocaleString()} color="text-red-400" />
-                        <div className="w-[1px] h-8 bg-white/10" />
-                        <StatItem label="Ads Blocked" value={stats.adsBlocked.toLocaleString()} color="text-yellow-400" />
+            {/* BOTTOM WIDGETS */}
+            {
+                !incognito && (
+                    <div className="z-10 relative px-12 pb-6 flex items-end justify-between w-full h-24">
+                        {/* PRIVACY STATIC BAR (CENTER) */}
+                        <div className="flex items-center gap-8 px-8 py-3 bg-black/40 backdrop-blur-2xl rounded-2xl border border-white/5 mx-auto">
+                            <div className="flex flex-col items-center">
+                                <span className="text-[9px] font-bold text-white/20 uppercase tracking-[0.2em] mb-1">Trackers Blocked</span>
+                                <span className="text-lg font-light tracking-wide text-red-400 drop-shadow-[0_0_10px_rgba(0,0,0,0.5)]">{stats.trackersBlocked}</span>
+                            </div>
+                        </div>
                     </div>
-
-                </div>
-            )}
-        </div>
+                )
+            }
+        </div >
     );
 }
 
@@ -350,7 +348,7 @@ const FavoriteIcon = React.memo(function FavoriteIcon({ icon, label, url, onClic
     return (
         <button
             onClick={() => onClick(url)}
-            className="group flex flex-col items-center gap-3 relative non-draggable"
+            className="group flex flex-col items-center gap-3 relative non-draggable z-0 hover:z-10"
         >
 
             <div className={`w-16 h-16 rounded-[20px] ${bgColor} border border-white/10 flex items-center justify-center transition-transform duration-200 group-hover:scale-105 shadow-lg text-white`}>
@@ -358,88 +356,14 @@ const FavoriteIcon = React.memo(function FavoriteIcon({ icon, label, url, onClic
             </div>
 
             {/* Label */}
-            <span className="text-[10px] font-medium tracking-widest uppercase text-white/50 group-hover:text-white transition-colors duration-200 absolute -bottom-6 opacity-0 group-hover:opacity-100 group-hover:bottom-[-1.5rem]">
+            <span className="text-[10px] font-medium tracking-widest uppercase text-white/50 group-hover:text-white transition-colors duration-200 absolute -bottom-6 opacity-0 group-hover:opacity-100 group-hover:bottom-[-1.5rem] whitespace-nowrap">
                 {label}
             </span>
         </button>
     )
 });
 
-const StatItem = React.memo(function StatItem({ label, value, color }: { label: string, value: string, color: string }) {
-    const [displayValue, setDisplayValue] = useState(value);
 
-    useEffect(() => {
-        // Parse numeric part
-        const numericPart = parseFloat(value.replace(/,/g, '').replace(/[^\d.]/g, ''));
-        if (isNaN(numericPart)) return;
-
-        const suffix = value.replace(/[\d,.]/g, '').trim();
-        const duration = 2000;
-        const steps = 60;
-        const stepTime = duration / steps;
-        let current = 0;
-
-        const timer = setInterval(() => {
-            current += numericPart / steps;
-            if (current >= numericPart) {
-                setDisplayValue(value);
-                clearInterval(timer);
-            } else {
-                // Formatting logic
-                let formatted = Math.floor(current).toLocaleString();
-                if (value.includes('.')) {
-                    formatted = current.toFixed(2);
-                }
-                setDisplayValue(`${formatted} ${suffix}`);
-            }
-        }, stepTime);
-
-        return () => clearInterval(timer);
-    }, [value]);
-
-    return (
-        <div className="flex flex-col items-center">
-            <span className="text-[9px] font-bold text-white/20 uppercase tracking-[0.2em] mb-1">{label}</span>
-            <span className={`text-lg font-light tracking-wide ${color} drop-shadow-[0_0_10px_rgba(0,0,0,0.5)]`}>{displayValue}</span>
-        </div>
-    )
-});
-
-// --- NEW WIDGETS ---
-
-
-
-function CryptoWidget() {
-    const [prices, setPrices] = useState({ btc: 98420, eth: 3450, sol: 145 });
-
-    useEffect(() => {
-        const interval = setInterval(() => {
-            setPrices(prev => ({
-                btc: prev.btc + (Math.random() - 0.5) * 50,
-                eth: prev.eth + (Math.random() - 0.5) * 10,
-                sol: prev.sol + (Math.random() - 0.5) * 2
-            }));
-        }, 3000);
-        return () => clearInterval(interval);
-    }, []);
-
-    return (
-        <div className="absolute top-8 right-8 flex gap-6 z-20">
-            <CryptoItem label="BTC" value={prices.btc} />
-            <CryptoItem label="ETH" value={prices.eth} />
-            <CryptoItem label="SOL" value={prices.sol} />
-        </div>
-    );
-}
-
-function CryptoItem({ label, value }: { label: string, value: number }) {
-    return (
-        <div className="flex flex-col items-end">
-            <span className="text-[9px] font-bold text-white/30 tracking-widest">{label}</span>
-            <span className="text-xs font-mono text-white/80">${value.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
-        </div>
-    );
-}
 
 function GoogleAppsWidget({ onNavigate }: { onNavigate: (url: string) => void }) {
     const [expanded, setExpanded] = useState(false);

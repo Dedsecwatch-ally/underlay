@@ -1,3 +1,4 @@
+import { CarTaxiFront } from 'lucide-react';
 import React, { useEffect, useRef } from 'react';
 
 export function NetworkGraph({ logs }: { logs: any[] }) {

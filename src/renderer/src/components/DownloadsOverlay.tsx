@@ -33,9 +33,20 @@ export function DownloadsOverlay({ isOpen, onClose }: { isOpen: boolean; onClose
                                 <DownloadIcon size={20} className="text-blue-400" />
                                 Downloads
                             </h2>
-                            <button onClick={onClose} className="text-white/40 hover:text-white transition-colors">
-                                <X size={20} />
-                            </button>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    onClick={() => {
+                                        dispatch({ type: 'NEW_TAB', payload: { url: 'underlay://library?view=downloads' } });
+                                        onClose();
+                                    }}
+                                    className="text-xs text-white/40 hover:text-white transition-colors mr-2"
+                                >
+                                    Show All
+                                </button>
+                                <button onClick={onClose} className="text-white/40 hover:text-white transition-colors">
+                                    <X size={20} />
+                                </button>
+                            </div>
                         </div>
 
                         {/* List */}

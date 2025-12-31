@@ -241,6 +241,17 @@ export function SettingsOverlay({ isOpen, onClose }: { isOpen: boolean, onClose:
                                     <div className="space-y-6">
 
                                         <SettingSection title="Toolbar">
+                                            <SettingRow
+                                                label="Customize Toolbar"
+                                                description="Drag and drop items to rearrange the toolbar"
+                                                icon={<LayoutTemplate size={16} />}
+                                                onClick={() => {
+                                                    dispatch({ type: 'TOGGLE_CUSTOMIZE_TOOLBAR' });
+                                                    onClose();
+                                                }}
+                                            >
+                                                <ChevronRight size={14} className="text-underlay-text/30" />
+                                            </SettingRow>
                                             <SettingRow label="Show Home button" description="Display the home button in the toolbar">
                                                 <Toggle value={uiState.showHome} onChange={() => toggleUi('showHome')} />
                                             </SettingRow>

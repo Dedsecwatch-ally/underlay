@@ -55,7 +55,7 @@ export function IntrospectionPanel({ isOpen }: { isOpen: boolean }) {
 
     useEffect(() => {
         if (!isOpen) return;
-
+          
         let unsubNetwork: (() => void) | undefined;
         let unsubPerf: (() => void) | undefined;
 

@@ -12,6 +12,12 @@ contextBridge.exposeInMainWorld('electron', {
     toggleNetworkMonitoring: (active: boolean) => {
         require('electron').ipcRenderer.send('network:toggle-monitoring', active);
     },
+    onPowerModeChanged: (callback: (data: { isOnBattery: boolean }) => void) => {
+        const { ipcRenderer } = require('electron');
+        const subscription = (_: any, data: any) => callback(data);
+        ipcRenderer.on('power:state-changed', subscription);
+        return () => ipcRenderer.removeListener('power:state-changed', subscription);
+    },
     onNetworkResponse: (callback: (data: any) => void) => {
         const { ipcRenderer } = require('electron');
         const subscription = (_: any, data: any) => callback(data);
@@ -77,6 +83,7 @@ contextBridge.exposeInMainWorld('electron', {
     privacy: {
         onTrackerBlocked: (callback: (data: any) => void) => {
             const subscription = (_: any, data: any) => callback(data);
+            // handle batch by exploding it for legacy single listener
             const batchSub = (_: any, batch: any[]) => batch.forEach(data => callback(data));
 
             require('electron').ipcRenderer.on('privacy:tracker-blocked', subscription);
@@ -86,6 +93,11 @@ contextBridge.exposeInMainWorld('electron', {
                 require('electron').ipcRenderer.removeListener('privacy:tracker-blocked', subscription);
                 require('electron').ipcRenderer.removeListener('privacy:tracker-blocked-batch', batchSub);
             };
+        },
+        onTrackerBlockedBatch: (callback: (batch: any[]) => void) => {
+            const subscription = (_: any, batch: any[]) => callback(batch);
+            require('electron').ipcRenderer.on('privacy:tracker-blocked-batch', subscription);
+            return () => require('electron').ipcRenderer.removeListener('privacy:tracker-blocked-batch', subscription);
         },
         onCookieDetected: (callback: (data: any) => void) => {
             const subscription = (_: any, data: any) => callback(data);
@@ -121,6 +133,10 @@ contextBridge.exposeInMainWorld('electron', {
     },
     cpp: {
         getMessage: () => require('electron').ipcRenderer.invoke('get-cpp-message')
+    },
+    onboarding: {
+        checkStatus: () => require('electron').ipcRenderer.invoke('onboarding:get-status'),
+        complete: () => require('electron').ipcRenderer.send('onboarding:complete')
     }
 });
 
@@ -151,3 +167,90 @@ try {
     // We can't easily proxy screen properties as they are read-only on window, 
     // but usually they are accessed directly. 
 } catch (e) { }
+
+// Firefox-style Picture-in-Picture Toggle Injection
+window.addEventListener('DOMContentLoaded', () => {
+    const style = document.createElement('style');
+    style.textContent = `
+        .underlay-pip-btn {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            z-index: 999999;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 4px;
+            padding: 5px 8px;
+            cursor: pointer;
+            font-family: sans-serif;
+            font-size: 12px;
+            opacity: 0;
+            transition: opacity 0.2s;
+            pointer-events: none;
+        }
+        .underlay-pip-btn.visible {
+            opacity: 1;
+            pointer-events: auto;
+        }
+        .underlay-pip-btn:hover {
+            background: rgba(0, 0, 0, 0.9);
+        }
+    `;
+    document.head.appendChild(style);
+
+    let activeVideo: HTMLVideoElement | null = null;
+    let pipBtn: HTMLDivElement | null = null;
+
+    const createBtn = () => {
+        const btn = document.createElement('div');
+        btn.className = 'underlay-pip-btn';
+        btn.innerText = 'PiP';
+        btn.onclick = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (activeVideo) {
+                if (document.pictureInPictureElement) {
+                    document.exitPictureInPicture();
+                } else {
+                    activeVideo.requestPictureInPicture();
+                }
+            }
+        };
+        document.body.appendChild(btn);
+        return btn;
+    };
+
+    document.addEventListener('mouseover', (e) => {
+        const target = e.target as HTMLElement;
+        if (target.tagName === 'VIDEO') {
+            activeVideo = target as HTMLVideoElement;
+            if (!pipBtn) pipBtn = createBtn();
+
+            const rect = activeVideo.getBoundingClientRect();
+            // Basic positioning relative to viewport
+            pipBtn.style.top = (window.scrollY + rect.top + 10) + 'px';
+            pipBtn.style.left = (window.scrollX + rect.right - 50) + 'px';
+            pipBtn.classList.add('visible');
+        } else if (pipBtn && !target.classList.contains('underlay-pip-btn')) {
+            // Logic to hide handled by mouseout below
+        }
+    }, true);
+
+    document.addEventListener('mouseout', (e) => {
+        const target = e.target as HTMLElement;
+        if (target.tagName === 'VIDEO' && pipBtn) {
+            setTimeout(() => {
+                if (!pipBtn?.matches(':hover')) {
+                    pipBtn?.classList.remove('visible');
+                }
+            }, 500);
+        }
+    }, true);
+});
+
+contextBridge.exposeInMainWorld('underlay', {
+    screenshot: {
+        captureVisible: () => require('electron').ipcRenderer.invoke('ui:capture-page')
+    }
+});
