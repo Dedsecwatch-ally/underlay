@@ -1,0 +1,221 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;700&family=JetBrains+Mono:wght@400&display=swap');
+
+:root {
+    --bg: #050507;
+    --text: #ffffff;
+    --accent: #3b82f6;
+    --accent-glow: rgba(59, 130, 246, 0.5);
+}
+
+body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', sans-serif;
+    overflow-x: hidden;
+}
+
+nav {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 2rem 4rem;
+}
+
+.logo {
+    font-weight: 700;
+    letter-spacing: 2px;
+    font-size: 1.2rem;
+}
+
+.links a {
+    color: rgba(255, 255, 255, 0.6);
+    text-decoration: none;
+    margin-left: 2rem;
+    transition: color 0.2s;
+}
+
+.links a:hover {
+    color: white;
+}
+
+.btn {
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    padding: 0.5rem 1rem;
+    border-radius: 6px;
+}
+
+header {
+    text-align: center;
+    padding: 6rem 1rem;
+    position: relative;
+    z-index: 1;
+}
+
+h1 {
+    font-size: 5rem;
+    line-height: 1.1;
+    margin-bottom: 1.5rem;
+    letter-spacing: -2px;
+}
+
+.gradient-text {
+    background: linear-gradient(to right, #fff, #3b82f6);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.subtitle {
+    font-size: 1.2rem;
+    color: rgba(255, 255, 255, 0.5);
+    max-width: 600px;
+    margin: 0 auto 4rem;
+}
+
+.hero-visual {
+    perspective: 1000px;
+}
+
+.browser-mockup {
+    width: 800px;
+    height: 400px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    margin: 0 auto;
+    border-radius: 12px;
+    backdrop-filter: blur(10px);
+    transform: rotateX(20deg) scale(0.9);
+    box-shadow: 0 50px 100px -20px rgba(0, 0, 0, 0.5);
+    display: flex;
+    flex-direction: column;
+}
+
+.mockup-header {
+    height: 40px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    display: flex;
+    align-items: center;
+    padding: 0 1rem;
+    gap: 1rem;
+}
+
+.dots {
+    display: flex;
+    gap: 6px;
+}
+
+.dots span {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    opacity: 0.5;
+}
+
+.red {
+    background: #ef4444;
+}
+
+.yellow {
+    background: #fbbf24;
+}
+
+.green {
+    background: #22c55e;
+}
+
+.bar {
+    background: rgba(0, 0, 0, 0.3);
+    height: 24px;
+    border-radius: 4px;
+    flex: 1;
+    display: flex;
+    align-items: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    padding-left: 10px;
+    color: rgba(255, 255, 255, 0.3);
+}
+
+.mockup-body {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+}
+
+.graph-line {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 100px;
+    background: linear-gradient(to top, var(--accent-glow), transparent);
+    clip-path: polygon(0 100%, 10% 80%, 20% 90%, 30% 60%, 40% 70%, 50% 40%, 60% 80%, 70% 30%, 80% 60%, 90% 20%, 100% 90%, 100% 100%);
+    opacity: 0.5;
+    animation: pulse 4s infinite ease-in-out;
+}
+
+@keyframes pulse {
+
+    0%,
+    100% {
+        transform: scaleY(1);
+        opacity: 0.5;
+    }
+
+    50% {
+        transform: scaleY(0.8);
+        opacity: 0.3;
+    }
+}
+
+#features {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 2rem;
+    padding: 4rem;
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+.feature-card {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    padding: 2rem;
+    border-radius: 12px;
+    transition: transform 0.2s;
+}
+
+.feature-card:hover {
+    transform: translateY(-5px);
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.feature-card h2 {
+    font-size: 1.2rem;
+    margin-bottom: 0.5rem;
+    color: var(--accent);
+}
+
+.feature-card p {
+    color: rgba(255, 255, 255, 0.6);
+    line-height: 1.5;
+    font-size: 0.9rem;
+}
+
+footer {
+    text-align: center;
+    padding: 4rem;
+    opacity: 0.3;
+    font-size: 0.8rem;
+}
+
+.glow-bg {
+    position: fixed;
+    top: -50%;
+    left: -50%;
+    width: 200%;
+    height: 200%;
+    background: radial-gradient(circle at 50% 50%, rgba(59, 130, 246, 0.05), transparent 60%);
+    z-index: 0;
+    pointer-events: none;
+}

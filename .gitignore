@@ -1,0 +1,16 @@
+node_modules
+dist
+release
+build/icon.icns
+
+# Build Artifacts
+build/
+test-results/
+
+# System
+.DS_Store
+.env
+*.log
+firefox-reference/
+
+build_log*.txt
