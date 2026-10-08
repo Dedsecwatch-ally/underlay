@@ -19,7 +19,7 @@
         "dmg",
         "zip"
       ],
-      "icon": "build/icon.png",
+      "icon": "resources/icon.png",
       "extendInfo": {
         "NSLocationWhenInUseUsageDescription": "This app requires access to your location to provide navigation and map services.",
         "NSLocationAlwaysUsageDescription": "This app requires access to your location to provide navigation and map services."
@@ -27,15 +27,24 @@
     },
     "win": {
       "target": "nsis",
-      "icon": "build/icon.png"
+      "icon": "resources/icon.png"
     },
     "directories": {
-      "output": "release"
+      "output": "release",
+      "buildResources": "resources"
     },
     "files": [
-      "dist/**/*",
+      "dist/main/**/*",
+      "dist/preload/**/*",
+      "dist/renderer/**/*",
       "package.json",
-      "build/Release/addon.node"
+      {
+        "from": "build/Release",
+        "to": "build/Release",
+        "filter": [
+          "addon.node"
+        ]
+      }
     ],
     "asarUnpack": [
       "**/*.node"

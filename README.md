@@ -56,6 +56,19 @@ npm run dev
 npm run build
 ```
 
+### Build the Mac app
+
+Requirements: macOS, [Node.js 20+](https://nodejs.org), and the Xcode Command Line Tools (`xcode-select --install`, needed to compile the native URL filter).
+
+```bash
+npm install
+npm run dist
+```
+
+This produces `release/Underlay-<version>.dmg` (and a `.zip`) for your Mac's architecture. Open the DMG and drag **Underlay** into **Applications**.
+
+The build isn't signed with an Apple Developer ID, so the first time you open it, right-click the app and choose **Open** (or use *System Settings › Privacy & Security › Open Anyway*). See Troubleshooting below if macOS says the app is damaged.
+
 ## 📂 Project Structure
 
 *   `src/main`: Electron Node.js backend.
