@@ -17,20 +17,27 @@ We adhere to a strict **Context Isolation** model. The Renderer never accesses N
 3.  **Permissions**: Request/Response flow for geolocation, camera, etc.
 
 ## 3. State Management
-The Renderer uses a **React Context + Reducer** pattern (`BrowserContext.tsx`).
-*   **Single Source of Truth**: The `activeCommand`, `tabs`, and `history` are managed in a central store.
-*   **Event-Driven**: The reducer listens to IPC events (via effects in `App.tsx`) and standard user actions.
+The renderer keeps browser state in a **Zustand** store (`store/browserStore.ts`).
+*   **Stable dispatch**: `dispatch` in `context/BrowserContext.tsx` is a module-level function; components that only issue actions never re-render.
+*   **Selectors**: long-lived components subscribe with `useBrowserState(selector)` so they only re-render when their slice changes. Panels call `useBrowser(isOpen)` to stop subscribing while closed.
+*   **Persistence**: writes to `localStorage` are debounced and serialised lazily; transient tab data (reader articles, blocked-request logs) is never persisted, and restored tabs load lazily when first selected.
+*   **Commands**: keyboard shortcuts and menu items are resolved in the main process (`before-input-event` + application menu) and delivered as `ui:command`, so they work even while a web page has focus.
 
 ## 4. Performance Engineering
-To achieve a "Premium" feel (60 FPS):
-*   **GPU Acceleration**: Crucial UI layers (`.gpu-layer`) use `will-change: transform`.
-*   **Virtual DOM**: React handles the reconciliation of high-frequency data (like memory graphs).
-*   **Adaptive Quality**: `useFPS` hook monitors the render loop. If FPS < 30, the app strictly degrades visual settings (removing `backdrop-filter`) to maintain responsiveness.
+*   **Memoized tabs**: each tab renders through a memoized `TabView`; webview events dispatch straight to the store, with an O(1) registry (`utils/webviews.ts`) mapping tabs ↔ webviews ↔ webContents ids.
+*   **Memory saver**: background tabs are put to sleep after inactivity (5 min in Low Power Mode, 15 min on battery, 60 min otherwise); tabs playing audio are spared.
+*   **Batched IPC**: blocked-request reports are batched once per second and applied once per tab.
+*   **Background throttling** is left on, so hidden tabs don't burn CPU.
 
-## 5. Security Model
-*   **Sandboxing**: All renderer processes have Node.js integration disabled.
-*   **Preload Scripts**: Only specific, safe APIs are exposed to the Renderer.
-*   **Content Security Policy**: Applied to the UI to prevent XSS.
+## 5. Security & Privacy Model
+*   **Locked-down web content**: every `<webview>` is forced to `sandbox`, `contextIsolation`, no Node and no preload in `will-attach-webview`, regardless of the attributes the UI asked for. Navigation is limited to `http(s)`, `about:blank` and `blob:`.
+*   **Trusted IPC only**: every IPC handler verifies the sender is the browser UI loaded from its own origin. Web pages have no bridge at all.
+*   **Permissions** (`main/permissions.ts`): camera, microphone, location, notifications, etc. are prompted per site and remembered (in memory only for private tabs); unknown permissions are denied.
+*   **Passwords** (`main/vault.ts`): encrypted with the OS keychain via `safeStorage`; plaintext never reaches the renderer, and copied passwords are cleared from the clipboard after 30 s.
+*   **Google account** (`main/account.ts`): derived from the browsing session's auth cookies and Google's `ListAccounts` endpoint; signing out removes Google cookies from the session.
+*   **Network privacy**: tracker/ad blocking (cached filter engine, hostname allowlist, never blocks top-level navigations), HTTPS upgrades with automatic fallback, Global Privacy Control, DNS-over-HTTPS, and a real-version reduced user agent.
+*   **Private tabs**: separate in-memory partition, wiped (cookies, cache, permissions) when the last private tab closes; no history or suggestions.
+*   **CSP**: the UI ships with a strict Content Security Policy (no inline scripts in production), injected at build time by `vite.config.ts`.
 
 ## 6. Directory Structure
 *   `src/main`: Electron Main process logic.

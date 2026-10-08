@@ -1,9 +1,11 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, Compass, Activity, Youtube, Clapperboard, MonitorPlay, Tv, Sparkles, Github, Cloud, VenetianMask, Mail, HardDrive, FileText, Calendar, MapPin, Image as ImageIcon, Languages, WifiOff, Twitter, Instagram, Facebook, ShoppingBag, Music, MessageCircle, Bot } from 'lucide-react';
+import { Search, Youtube, Clapperboard, MonitorPlay, Tv, Sparkles, Github, Cloud, VenetianMask, Mail, HardDrive, FileText, Calendar, MapPin, Image as ImageIcon, Languages, WifiOff, Twitter, Instagram, Facebook, ShoppingBag, Music, MessageCircle, Bot } from 'lucide-react';
 
-import { useBrowser } from '../context/BrowserContext';
+import { useBrowserState } from '../context/BrowserContext';
+import { usePrivacyPrefs } from '../hooks/usePrivacyPrefs';
+import { resolveInput, searchUrl, useSuggestions } from '../utils/omnibox';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import { usePrivacyStats, formatBytes } from '../hooks/usePrivacyStats';
 
@@ -34,56 +36,20 @@ const itemVariants = {
     }
 };
 
-export function NewTabPage({ onNavigate, incognito }: { onNavigate: (url: string) => void; incognito?: boolean }) {
-    const { state } = useBrowser();
+export function NewTabPage({ onNavigate, incognito, isActive = true }: { onNavigate: (url: string) => void; incognito?: boolean; isActive?: boolean }) {
     const isOnline = useOnlineStatus();
-    // const fps = useFPS(); (Removed)
     const stats = usePrivacyStats();
-    const [currentTime, setCurrentTime] = useState(new Date());
-    const [isLowPower, setIsLowPower] = useState(false);
+    const searchEngine = useBrowserState(s => s.settings.searchEngine);
+    const [prefs] = usePrivacyPrefs();
 
-
-
-    const [wallpaper] = useState(() => {
-        // Simple Random Rotation on Mount
-        const randomIndex = Math.floor(Math.random() * CUSTOM_WALLPAPERS.length);
-        return CUSTOM_WALLPAPERS[randomIndex];
-    });
+    const [wallpaper] = useState(() => sizedWallpaper(CUSTOM_WALLPAPERS[Math.floor(Math.random() * CUSTOM_WALLPAPERS.length)]));
 
     const [searchQuery, setSearchQuery] = useState('');
-    const [suggestions, setSuggestions] = useState<string[]>([]);
     const [showSuggestions, setShowSuggestions] = useState(false);
     const [selectedIndex, setSelectedIndex] = useState(-1);
+    const suggestions = useSuggestions(searchQuery, searchEngine, isActive && !incognito && prefs.searchSuggestions);
 
-    useEffect(() => {
-        const fetchSuggestions = async () => {
-            const query = searchQuery.trim();
-            if (!query || query.startsWith('http') || query.includes('.') || query.length < 2) {
-                setSuggestions([]);
-                return;
-            }
-
-            try {
-                const data = await window.electron.search.suggest(query);
-                if (Array.isArray(data) && Array.isArray(data[1])) {
-                    setSuggestions(data[1].slice(0, 5));
-                }
-            } catch (e) {
-                // Silent fail
-            }
-        };
-
-        const timeoutId = setTimeout(() => {
-            fetchSuggestions();
-        }, 200);
-
-        return () => clearTimeout(timeoutId);
-    }, [searchQuery]);
-
-    useEffect(() => {
-        const timer = setInterval(() => setCurrentTime(new Date()), 1000);
-        return () => clearInterval(timer);
-    }, []);
+    useEffect(() => setSelectedIndex(-1), [suggestions]);
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
         if (e.key === 'ArrowDown') {
@@ -94,32 +60,16 @@ export function NewTabPage({ onNavigate, incognito }: { onNavigate: (url: string
             setSelectedIndex(prev => (prev > -1 ? prev - 1 : prev));
         } else if (e.key === 'Escape') {
             setShowSuggestions(false);
-        } else if (e.key === 'Enter') {
-            // Let form submit handle it, but update query if selected
-            if (selectedIndex >= 0) {
-                e.preventDefault();
-                const url = suggestions[selectedIndex];
-                onNavigate(`https://google.com/search?q=${encodeURIComponent(url)}`);
-            }
+        } else if (e.key === 'Enter' && selectedIndex >= 0) {
+            e.preventDefault();
+            onNavigate(searchUrl(suggestions[selectedIndex], searchEngine));
         }
     };
 
     const handleSearch = (e: React.FormEvent) => {
         e.preventDefault();
-        if (!searchQuery.trim()) return;
-
-        // Simple search navigation
-        let url = searchQuery.trim();
-        const hasProtocol = /^https?:\/\//i.test(url);
-        const hasDomain = url.includes('.') && !url.includes(' ');
-
-        if (!hasProtocol && !hasDomain) {
-            url = `https://google.com/search?q=${encodeURIComponent(url)}`;
-        } else if (!hasProtocol && hasDomain) {
-            url = `https://${url}`;
-        }
-
-        onNavigate(url);
+        const url = resolveInput(searchQuery, searchEngine);
+        if (url) onNavigate(url);
     };
 
     return (
@@ -133,8 +83,6 @@ export function NewTabPage({ onNavigate, incognito }: { onNavigate: (url: string
                     <div className="absolute inset-0 opacity-[0.03]" style={{ backgroundImage: 'radial-gradient(#ffffff 1px, transparent 1px)', backgroundSize: '30px 30px' }}></div>
                 </div>
             ) : (
-                // BREATHING WALLPAPER LAYER (Normal)
-                // STATIC WALLPAPER LAYER (Normal)
                 <div className="absolute inset-0 z-0">
                     <img
                         src={wallpaper}
@@ -143,7 +91,7 @@ export function NewTabPage({ onNavigate, incognito }: { onNavigate: (url: string
                         className="w-full h-full object-cover select-none pointer-events-none"
                         onError={(e) => {
                             // Fallback if image fails
-                            e.currentTarget.src = CUSTOM_WALLPAPERS[0];
+                            e.currentTarget.src = sizedWallpaper(CUSTOM_WALLPAPERS[0]);
                         }}
                     />
                     {/* Cinematic Vignette */}
@@ -155,9 +103,6 @@ export function NewTabPage({ onNavigate, incognito }: { onNavigate: (url: string
 
 
 
-            // ... (existing code)
-
-            {/* TOP WIDGETS */}
             {/* TOP WIDGETS */}
             {!incognito && (
                 <>
@@ -181,21 +126,17 @@ export function NewTabPage({ onNavigate, incognito }: { onNavigate: (url: string
                                 <VenetianMask size={48} className="text-zinc-400" strokeWidth={1.5} />
                             </div>
                             <div>
-                                <h1 className="text-4xl font-bold text-white mb-2 tracking-tight">You are Incognito</h1>
+                                <h1 className="text-4xl font-semibold text-white mb-2 tracking-tight">Private Browsing</h1>
                                 <p className="text-zinc-500 max-w-md mx-auto text-sm leading-relaxed">
-                                    Your browsing history, cookies, and site data will not be saved.
-                                    Downloads and bookmarks created will still be kept.
+                                    Pages you view in private tabs won't appear in your history, and their cookies,
+                                    site data and permissions are erased when you close the last private tab.
+                                    Downloads and bookmarks are kept.
                                 </p>
                             </div>
                         </div>
                     ) : (
                         <>
-                            <h1 className="text-6xl font-light tracking-tighter text-white select-none drop-shadow-lg">
-                                {currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                            </h1>
-                            <div className="text-[10px] font-semibold tracking-[0.8em] uppercase text-white/80 mt-2 drop-shadow-md">
-                                {currentTime.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}
-                            </div>
+                            <Clock active={isActive} />
                         </>
                     )}
                 </div>
@@ -279,7 +220,7 @@ export function NewTabPage({ onNavigate, incognito }: { onNavigate: (url: string
                             onFocus={() => setShowSuggestions(true)}
                             onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
                             onKeyDown={handleKeyDown}
-                            placeholder="Type a URL or search..."
+                            placeholder="Search or enter website name"
                             className="relative w-full bg-transparent border-none py-4 pl-12 pr-6 text-lg text-white placeholder-white/50 outline-none font-light tracking-wide rounded-full select-text"
                             style={{ textShadow: '0 2px 10px rgba(0,0,0,0.5)' }}
                             autoFocus
@@ -294,7 +235,7 @@ export function NewTabPage({ onNavigate, incognito }: { onNavigate: (url: string
                                         className={`px-6 py-3 text-sm cursor-pointer flex items-center gap-3 transition-colors ${i === selectedIndex ? 'bg-white/10 text-white' : 'hover:bg-white/5 text-white/70 hover:text-white'}`}
                                         onMouseDown={(e) => {
                                             e.preventDefault();
-                                            onNavigate(`https://google.com/search?q=${encodeURIComponent(sug)}`);
+                                            onNavigate(searchUrl(sug, searchEngine));
                                         }}
                                     >
                                         <Search size={14} className="opacity-50" />
@@ -307,7 +248,7 @@ export function NewTabPage({ onNavigate, incognito }: { onNavigate: (url: string
 
                     {/* Helper Text */}
                     <div className="absolute top-full left-0 w-full text-center mt-3 opacity-0 group-focus-within:opacity-100 transition-opacity duration-700 delay-100">
-                        <span className="text-[10px] uppercase tracking-[0.3em] text-white/30">Press Enter to Search</span>
+                        <span className="text-[10px] uppercase tracking-[0.3em] text-white/30">Press Return to search</span>
                     </div>
 
                     {!isOnline && (
@@ -325,7 +266,6 @@ export function NewTabPage({ onNavigate, incognito }: { onNavigate: (url: string
             {/* QUICK NOTES (Floating) */}
             {!incognito && <QuickNotesWidget />}
 
-            {/* BOTTOM WIDGETS */}
             {/* BOTTOM WIDGETS */}
             {
                 !incognito && (
@@ -446,3 +386,38 @@ function GoogleAppsWidget({ onNavigate }: { onNavigate: (url: string) => void })
 }
 
 
+
+/** Requests a wallpaper sized for this screen instead of always fetching 4K. */
+function sizedWallpaper(url: string) {
+    const width = Math.min(3840, Math.ceil((window.screen.width * window.devicePixelRatio) / 640) * 640);
+    return url.replace(/([?&])q=\d+/, '$1q=80').replace(/([?&])w=\d+/, `$1w=${width}`);
+}
+
+/** Re-renders once a minute, on the minute, and not at all in background tabs. */
+function Clock({ active }: { active: boolean }) {
+    const [now, setNow] = useState(() => new Date());
+    useEffect(() => {
+        if (!active) return;
+        setNow(new Date());
+        let timer: ReturnType<typeof setTimeout>;
+        const tick = () => {
+            const date = new Date();
+            setNow(date);
+            timer = setTimeout(tick, 60_000 - (date.getSeconds() * 1000 + date.getMilliseconds()) + 50);
+        };
+        timer = setTimeout(tick, 60_000 - (now.getSeconds() * 1000 + now.getMilliseconds()) + 50);
+        return () => clearTimeout(timer);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [active]);
+
+    return (
+        <>
+            <h1 className="text-7xl font-extralight tracking-[-0.04em] text-white select-none drop-shadow-lg tabular-nums">
+                {now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+            </h1>
+            <div className="text-[13px] font-medium text-white/85 mt-1 drop-shadow-md">
+                {now.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}
+            </div>
+        </>
+    );
+}

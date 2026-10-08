@@ -1,104 +1,99 @@
 import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Camera, Mic, MapPin, Bell, Shield, X, Check } from 'lucide-react';
-import { getPlatformElectron } from '../utils/PlatformUtils';
+import { Camera, Mic, MapPin, Bell, Monitor, Clipboard, ExternalLink, Shield, Music, AppWindow, Cookie, Timer } from 'lucide-react';
 
-interface PermissionRequestProps {
-    // Pass any necessary props or callbacks if needed, 
-    // but this component will primarily listen to IPC events.
+const KIND_INFO: Record<PermissionKind, { label: string; icon: React.ComponentType<{ size?: number; strokeWidth?: number }> }> = {
+    camera: { label: 'use your camera', icon: Camera },
+    microphone: { label: 'use your microphone', icon: Mic },
+    geolocation: { label: 'know your location', icon: MapPin },
+    notifications: { label: 'show notifications', icon: Bell },
+    midi: { label: 'use your MIDI devices', icon: Music },
+    screen: { label: 'share your screen', icon: Monitor },
+    'clipboard-read': { label: 'see text and images copied to the clipboard', icon: Clipboard },
+    'open-external': { label: 'open another application', icon: ExternalLink },
+    'idle-detection': { label: 'know when you are actively using this device', icon: Timer },
+    'window-management': { label: 'manage windows on all your displays', icon: AppWindow },
+    'storage-access': { label: 'use cookies and data while embedded on other sites', icon: Cookie }
+};
+
+function describe(kinds: PermissionKind[]) {
+    if (kinds.includes('camera') && kinds.includes('microphone')) return 'use your camera and microphone';
+    return kinds.map(k => KIND_INFO[k]?.label ?? k).join(' and ');
 }
 
-interface PermissionEvent {
-    id: number;
-    origin: string;
-    permission: string; // 'media', 'geolocation', 'notifications', 'midi', etc.
-    details: any;
+function hostOf(origin: string) {
+    try {
+        return new URL(origin).hostname.replace(/^www\./, '');
+    } catch {
+        return origin;
+    }
 }
 
-export const PermissionOverlay: React.FC<PermissionRequestProps> = () => {
-    const [request, setRequest] = useState<PermissionEvent | null>(null);
+/** Safari-style permission sheet that drops from the toolbar. */
+export const PermissionOverlay: React.FC = () => {
+    const [queue, setQueue] = useState<PermissionPrompt[]>([]);
 
     useEffect(() => {
-        const electron = getPlatformElectron();
-        const cleanup = electron?.security?.onPermissionRequest?.((data: any) => {
-            // "media" usually comes with details.mediaTypes = ['video', 'audio']
-            setRequest({ ...data, id: Date.now() });
-        });
-        return cleanup;
+        return window.electron?.security?.onPermissionRequest(prompt => setQueue(q => [...q, prompt]));
     }, []);
 
-    const handleResponse = (allow: boolean) => {
-        const electron = getPlatformElectron();
-        if (request) {
-            electron?.security?.sendPermissionResponse?.(request.id, allow);
-        }
-        setRequest(null);
+    const current = queue[0];
+
+    const respond = (allow: boolean) => {
+        if (!current) return;
+        window.electron.security.sendPermissionResponse(current.id, allow);
+        setQueue(q => q.slice(1));
     };
 
-    if (!request) return null;
+    // Deliberately no Escape shortcut: a decision that gets remembered should
+    // never be made by a keypress meant for something else.
 
-    // Determine Icon & Label
-    let Icon = Shield;
-    let label = 'Hardware Access';
-
-    if (request.permission === 'media') {
-        const types = request.details?.mediaTypes || [];
-        if (types.includes('video') && types.includes('audio')) {
-            Icon = Camera; // Simpler to just show camera or a combined icon
-            label = 'Camera & Microphone';
-        } else if (types.includes('video')) {
-            Icon = Camera;
-            label = 'Camera';
-        } else if (types.includes('audio')) {
-            Icon = Mic;
-            label = 'Microphone';
-        }
-    } else if (request.permission === 'geolocation') {
-        Icon = MapPin;
-        label = 'Location';
-    } else if (request.permission === 'notifications') {
-        Icon = Bell;
-        label = 'Notifications';
-    }
-
-    const domain = new URL(request.origin).hostname;
+    const Icon = current ? KIND_INFO[current.kinds[0]]?.icon ?? Shield : Shield;
+    const requester = current?.isApp ? 'Underlay' : hostOf(current?.origin ?? '');
 
     return (
         <AnimatePresence>
-            <motion.div
-                initial={{ opacity: 0, y: -20, scale: 0.95 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.9 }}
-                className="fixed top-20 left-1/2 -translate-x-1/2 z-[60] bg-[#1a1a1d] border border-white/10 shadow-2xl rounded-xl p-4 flex flex-col items-center gap-3 min-w-[320px]"
-            >
-                <div className="w-10 h-10 rounded-full bg-blue-500/20 flex items-center justify-center text-blue-400 mb-1">
-                    <Icon size={20} />
-                </div>
-
-                <div className="text-center">
-                    <h3 className="text-white font-medium text-sm">Permission Request</h3>
-                    <p className="text-white/60 text-xs mt-1">
-                        <span className="font-bold text-white/90">{domain}</span> wants to access your <span className="text-blue-400">{label}</span>.
-                    </p>
-                </div>
-
-                <div className="flex gap-2 w-full mt-2">
-                    <button
-                        onClick={() => handleResponse(false)}
-                        className="flex-1 px-3 py-2 bg-white/5 hover:bg-white/10 text-white/80 rounded-lg text-xs font-medium transition-colors flex items-center justify-center gap-1.5"
-                    >
-                        <X size={14} />
-                        Deny
-                    </button>
-                    <button
-                        onClick={() => handleResponse(true)}
-                        className="flex-1 px-3 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-medium transition-colors flex items-center justify-center gap-1.5 shadow-lg shadow-blue-500/20"
-                    >
-                        <Check size={14} />
-                        Allow
-                    </button>
-                </div>
-            </motion.div>
+            {current && (
+                <motion.div
+                    key={current.id}
+                    initial={{ opacity: 0, y: -12 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -12, transition: { duration: 0.15 } }}
+                    transition={{ duration: 0.25, ease: [0.32, 0.72, 0, 1] }}
+                    className="popover fixed top-[92px] left-1/2 -translate-x-1/2 z-[120] w-[340px] p-5 text-underlay-text"
+                    role="alertdialog"
+                    aria-labelledby="permission-title"
+                >
+                    <div className="flex items-start gap-3.5">
+                        <div className="shrink-0 w-10 h-10 rounded-xl bg-underlay-accent/15 text-underlay-accent flex items-center justify-center">
+                            <Icon size={20} strokeWidth={1.75} />
+                        </div>
+                        <div className="min-w-0">
+                            <h2 id="permission-title" className="text-[13px] font-semibold leading-snug">
+                                Allow “{requester}” to {describe(current.kinds)}?
+                            </h2>
+                            {current.externalUrl ? (
+                                <p className="mt-1 text-[12px] text-underlay-text/55 break-all">
+                                    {current.externalUrl.split(':')[0]}: link
+                                </p>
+                            ) : (
+                                <p className="mt-1 text-[12px] text-underlay-text/55 leading-snug">
+                                    {current.isApp
+                                        ? 'Used to show local weather on the start page. Nothing leaves your device until you allow it.'
+                                        : 'You can change this later in Settings › Privacy.'}
+                                </p>
+                            )}
+                        </div>
+                    </div>
+                    <div className="flex gap-2 mt-4">
+                        <button className="btn-secondary flex-1" onClick={() => respond(false)}>Don’t Allow</button>
+                        <button className="btn-primary flex-1" onClick={() => respond(true)} autoFocus>Allow</button>
+                    </div>
+                    {queue.length > 1 && (
+                        <p className="mt-2.5 text-center text-[11px] text-underlay-text/40">{queue.length - 1} more {queue.length === 2 ? 'request' : 'requests'}</p>
+                    )}
+                </motion.div>
+            )}
         </AnimatePresence>
     );
 };

@@ -1,111 +1,130 @@
-import React from 'react';
-import { Shield, ShieldAlert, Eye, EyeOff, X } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import React, { useEffect, useRef } from 'react';
+import { motion } from 'framer-motion';
+import { Lock, LockOpen, ShieldCheck, ShieldOff, VenetianMask } from 'lucide-react';
+import type { BlockedStats } from '../store/browserStore';
+import { hostnameOf } from '../utils/omnibox';
 
-interface PrivacyShieldProps {
-    stats: {
-        ads: number;
-        trackers: number;
-        fingerprinters: number;
-        cryptominers: number;
-        social: number;
-        history: Array<{ url: string; domain: string; type: string; timestamp: number }>;
-    } | undefined;
-    isVisible: boolean;
+interface SiteInfoProps {
+    url: string;
+    incognito: boolean;
+    stats: BlockedStats | undefined;
+    shieldsEnabled: boolean;
+    onToggleShields: (enabled: boolean) => void;
     onClose: () => void;
-    onToggleProtection: (enabled: boolean) => void;
-    protectionEnabled: boolean;
 }
 
-export function PrivacyShield({ stats, isVisible, onClose, onToggleProtection, protectionEnabled }: PrivacyShieldProps) {
-    if (!isVisible) return null;
+const CATEGORIES: Array<{ key: keyof Omit<BlockedStats, 'history'>; label: string }> = [
+    { key: 'trackers', label: 'Trackers' },
+    { key: 'ads', label: 'Ads' },
+    { key: 'fingerprinters', label: 'Fingerprinters' },
+    { key: 'social', label: 'Social trackers' },
+    { key: 'cryptominers', label: 'Cryptominers' }
+];
 
-    const totalBlocked = stats ? (stats.ads + stats.trackers + stats.fingerprinters + stats.cryptominers + stats.social) : 0;
+/** Safari-style site information popover anchored to the address bar. */
+export function PrivacyShield({ url, incognito, stats, shieldsEnabled, onToggleShields, onClose }: SiteInfoProps) {
+    const ref = useRef<HTMLDivElement>(null);
+    const host = hostnameOf(url);
+    const secure = url.startsWith('https:');
+    const total = stats ? CATEGORIES.reduce((sum, c) => sum + stats[c.key], 0) : 0;
+    const blockedDomains = stats ? [...new Set(stats.history.map(h => h.domain))].slice(-8).reverse() : [];
+
+    useEffect(() => {
+        const onPointerDown = (e: PointerEvent) => {
+            if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+        };
+        const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+        // Defer so the click that opened us doesn't immediately close us.
+        const timer = setTimeout(() => window.addEventListener('pointerdown', onPointerDown));
+        window.addEventListener('keydown', onKey);
+        return () => {
+            clearTimeout(timer);
+            window.removeEventListener('pointerdown', onPointerDown);
+            window.removeEventListener('keydown', onKey);
+        };
+    }, [onClose]);
 
     return (
-        <AnimatePresence>
-            <motion.div
-                initial={{ opacity: 0, y: 10, scale: 0.95 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.95 }}
-                className="absolute top-12 left-4 z-50 w-80 bg-[#1e1e20] border border-[#2d2d30] rounded-xl shadow-2xl overflow-hidden font-sans text-sm"
-            >
-                {/* Header */}
-                <div className={`p-4 ${protectionEnabled ? 'bg-gradient-to-br from-indigo-600/20 to-purple-600/20' : 'bg-red-500/10'}`}>
-                    <div className="flex justify-between items-start mb-2">
-                        <div className="flex items-center gap-2">
-                            <div className={`p-2 rounded-full ${protectionEnabled ? 'bg-indigo-500/20 text-indigo-400' : 'bg-red-500/20 text-red-400'}`}>
-                                {protectionEnabled ? <Shield size={20} /> : <ShieldAlert size={20} />}
-                            </div>
-                            <div>
-                                <h3 className="font-semibold text-white">{protectionEnabled ? 'Enhanced Protection' : 'Protection Disabled'}</h3>
-                                <p className="text-xs text-white/50">{protectionEnabled ? 'Strict Mode Active' : 'Site may track you'}</p>
-                            </div>
-                        </div>
-                        <button onClick={onClose} className="text-white/30 hover:text-white transition-colors">
-                            <X size={16} />
-                        </button>
-                    </div>
-
-                    <div className="mt-4 flex items-center justify-between">
-                        <div className="flex flex-col">
-                            <span className="text-2xl font-bold text-white tabular-nums">{totalBlocked}</span>
-                            <span className="text-xs text-white/40">items blocked</span>
-                        </div>
-
-                        <button
-                            onClick={() => onToggleProtection(!protectionEnabled)}
-                            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors border ${protectionEnabled ? 'border-white/10 hover:bg-white/10 text-white/80' : 'bg-indigo-600 border-indigo-500 text-white hover:bg-indigo-500'}`}
-                        >
-                            {protectionEnabled ? 'Turn OFF' : 'Turn ON'}
-                        </button>
-                    </div>
+        <motion.div
+            ref={ref}
+            initial={{ opacity: 0, y: -4, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            transition={{ duration: 0.16, ease: [0.32, 0.72, 0, 1] }}
+            className="popover absolute top-full left-0 mt-2 w-[300px] z-50 overflow-hidden text-underlay-text origin-top-left"
+            role="dialog"
+            aria-label="Site information"
+        >
+            <div className="px-4 pt-4 pb-3">
+                <div className="text-[13px] font-semibold truncate">{host || 'This page'}</div>
+                <div className="flex items-center gap-1.5 mt-1 text-[12px] text-underlay-text/60">
+                    {incognito ? (
+                        <><VenetianMask size={13} /> Private tab — nothing from it is saved</>
+                    ) : secure ? (
+                        <><Lock size={12} /> Connection is secure</>
+                    ) : (
+                        <><LockOpen size={12} className="text-[#ff9f0a]" /><span className="text-[#ff9f0a]">Connection is not secure</span></>
+                    )}
                 </div>
+            </div>
 
-                {/* Categories */}
-                <div className="p-4 space-y-3">
-                    <CategoryRow label="Social Trackers" count={stats?.social || 0} color="text-blue-400" />
-                    <CategoryRow label="Cross-Site Cookies" count={stats?.trackers || 0} color="text-yellow-400" />
-                    <CategoryRow label="Fingerprinters" count={stats?.fingerprinters || 0} color="text-orange-400" />
-                    <CategoryRow label="Cryptominers" count={stats?.cryptominers || 0} color="text-red-400" />
-                    <CategoryRow label="Ads & Annotations" count={stats?.ads || 0} color="text-white/40" />
+            <div className="mx-3 mb-3 rounded-lg bg-underlay-text/[0.05] px-3 py-2.5">
+                <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-[13px] font-medium">
+                        {shieldsEnabled ? <ShieldCheck size={15} className="text-[#30d158]" /> : <ShieldOff size={15} className="text-underlay-text/40" />}
+                        Shields
+                    </div>
+                    <Switch checked={shieldsEnabled} onChange={onToggleShields} label="Block trackers and ads" />
                 </div>
+                <p className="mt-1 text-[11.5px] leading-snug text-underlay-text/50">
+                    {!shieldsEnabled
+                        ? 'Trackers and ads are not being blocked.'
+                        : total === 0
+                            ? 'No trackers found on this page.'
+                            : `Prevented ${total} ${total === 1 ? 'tracker' : 'trackers'} from profiling you on this page.`}
+                </p>
+            </div>
 
-                {/* Recent Activity */}
-                <div className="bg-[#18181a] p-3 border-t border-[#2d2d30] max-h-32 overflow-y-auto">
-                    <h4 className="text-xs font-semibold text-white/30 mb-2 uppercase tracking-wider">Recent Activity</h4>
-                    <div className="space-y-1">
-                        {stats?.history && stats.history.slice(-5).reverse().map((item, i) => (
-                            <div key={i} className="flex justify-between items-center text-[10px] text-white/60">
-                                <span className="truncate max-w-[180px]">{item.domain}</span>
-                                <span className={`px-1 rounded bg-white/5 ${getColorForType(item.type)}`}>{item.type}</span>
+            {shieldsEnabled && total > 0 && (
+                <div className="px-4 pb-4">
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[12px]">
+                        {CATEGORIES.filter(c => stats![c.key] > 0).map(c => (
+                            <div key={c.key} className="flex justify-between text-underlay-text/70">
+                                <span>{c.label}</span>
+                                <span className="tabular-nums font-medium text-underlay-text">{stats![c.key]}</span>
                             </div>
                         ))}
-                        {(!stats?.history || stats.history.length === 0) && (
-                            <div className="text-center text-xs text-white/20 py-2">No activity detected</div>
-                        )}
                     </div>
+                    {blockedDomains.length > 0 && (
+                        <div className="mt-3 pt-3 border-t hairline">
+                            <div className="section-label mb-1.5">Recently blocked</div>
+                            <ul className="space-y-0.5 text-[12px] text-underlay-text/60 font-mono">
+                                {blockedDomains.map(domain => <li key={domain} className="truncate">{domain}</li>)}
+                            </ul>
+                        </div>
+                    )}
                 </div>
-            </motion.div>
-        </AnimatePresence>
+            )}
+        </motion.div>
     );
 }
 
-function CategoryRow({ label, count, color }: { label: string, count: number, color: string }) {
+export function Switch({ checked, onChange, label, disabled }: { checked: boolean; onChange: (value: boolean) => void; label: string; disabled?: boolean }) {
     return (
-        <div className="flex justify-between items-center">
-            <span className="text-white/70">{label}</span>
-            <span className={`font-mono text-xs ${count > 0 ? color : 'text-white/20'}`}>{count}</span>
-        </div>
+        <button
+            role="switch"
+            aria-checked={checked}
+            aria-label={label}
+            disabled={disabled}
+            onClick={(e) => {
+                e.stopPropagation();
+                onChange(!checked);
+            }}
+            className={`relative shrink-0 w-[38px] h-[22px] rounded-full transition-colors duration-200 ease-apple disabled:opacity-40 ${checked ? 'bg-[#30d158]' : 'bg-underlay-text/20'}`}
+        >
+            <span
+                className="absolute top-[2px] left-[2px] w-[18px] h-[18px] rounded-full bg-white shadow-[0_1px_3px_rgba(0,0,0,0.3)] transition-transform duration-200 ease-apple"
+                style={{ transform: checked ? 'translateX(16px)' : 'none' }}
+            />
+        </button>
     );
-}
-
-function getColorForType(type: string) {
-    switch (type) {
-        case 'Social': return 'text-blue-400';
-        case 'Tracker': return 'text-yellow-400';
-        case 'Fingerprinter': return 'text-orange-400';
-        case 'Cryptominer': return 'text-red-400';
-        default: return 'text-white/40';
-    }
 }

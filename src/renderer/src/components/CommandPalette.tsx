@@ -1,49 +1,113 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, Command, ArrowRight, CornerDownLeft, X, Layers, Activity, Clock, Settings } from 'lucide-react';
-import { useBrowser } from '../context/BrowserContext';
+import { Search, Plus, VenetianMask, RotateCcw, X, Clock, Settings, ArrowDownToLine, User, Globe, AppWindow, Library, Star } from 'lucide-react';
+import { dispatch, useBrowser } from '../context/BrowserContext';
+import { resolveInput, looksLikeUrl, displayUrl, SEARCH_ENGINES } from '../utils/omnibox';
+import { shortcut } from '../utils/PlatformUtils';
+import { NEW_TAB_URL } from '../store/browserStore';
 
-export function CommandPalette({ isOpen, onClose }: { isOpen: boolean, onClose: () => void }) {
-    const { state, dispatch } = useBrowser();
+interface Item {
+    id: string;
+    label: string;
+    detail?: string;
+    icon: React.ReactNode;
+    shortcut?: string;
+    run: () => void;
+}
+
+/** Spotlight-style launcher: commands, open tabs, bookmarks, or a URL/search. */
+export function CommandPalette({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
+    const { state } = useBrowser(isOpen);
     const [query, setQuery] = useState('');
-    const [selectedIndex, setSelectedIndex] = useState(0);
+    const [selected, setSelected] = useState(0);
     const inputRef = useRef<HTMLInputElement>(null);
-
-    const commands = [
-        { id: 'new-tab', label: 'New Tab', icon: <Layers size={14} />, action: () => dispatch({ type: 'NEW_TAB' }), shortcut: '⌘T' },
-        { id: 'close-tab', label: 'Close Active Tab', icon: <X size={14} />, action: () => state.activeTabId && dispatch({ type: 'CLOSE_TAB', payload: { id: state.activeTabId } }), shortcut: '⌘W' },
-        { id: 'reload', label: 'Reload Page', icon: <ArrowRight size={14} />, action: () => dispatch({ type: 'TRIGGER_COMMAND', payload: 'reload' }), shortcut: '⌘R' },
-        { id: 'focus-url', label: 'Focus Address Bar', icon: <Search size={14} />, action: () => dispatch({ type: 'TRIGGER_COMMAND', payload: 'focusAddressBar' }), shortcut: '⌘L' },
-        { id: 'history', label: 'Toggle History', icon: <Clock size={14} />, action: () => dispatch({ type: 'TRIGGER_COMMAND', payload: 'toggleHistory' }), shortcut: '⌘H' },
-        { id: 'settings', label: 'Toggle Settings', icon: <Settings size={14} />, action: () => dispatch({ type: 'TRIGGER_COMMAND', payload: 'toggleSettings' }), shortcut: '⌘,' },
-        { id: 'underlay', label: 'Toggle Underlay/DevTools', icon: <Activity size={14} />, action: () => dispatch({ type: 'TRIGGER_COMMAND', payload: 'toggleDevTools' }), shortcut: '⌥⌘I' },
-    ];
-
-    const filtered = commands.filter(c => c.label.toLowerCase().includes(query.toLowerCase()));
+    const listRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
         if (isOpen) {
             setQuery('');
-            setSelectedIndex(0);
-            setTimeout(() => inputRef.current?.focus(), 50);
+            setSelected(0);
+            requestAnimationFrame(() => inputRef.current?.focus());
         }
     }, [isOpen]);
 
-    const handleKeyDown = (e: React.KeyboardEvent) => {
+    const items = useMemo<Item[]>(() => {
+        const activeId = state.activeTabId;
+        const commands: Item[] = [
+            { id: 'new-tab', label: 'New Tab', icon: <Plus size={15} />, shortcut: shortcut('T'), run: () => dispatch({ type: 'NEW_TAB' }) },
+            { id: 'private', label: 'New Private Tab', icon: <VenetianMask size={15} />, shortcut: shortcut('Shift', 'N'), run: () => dispatch({ type: 'NEW_TAB', payload: { incognito: true } }) },
+            { id: 'reopen', label: 'Reopen Closed Tab', icon: <RotateCcw size={15} />, shortcut: shortcut('Shift', 'T'), run: () => dispatch({ type: 'REOPEN_CLOSED_TAB' }) },
+            { id: 'close', label: 'Close Tab', icon: <X size={15} />, shortcut: shortcut('W'), run: () => activeId && dispatch({ type: 'CLOSE_TAB', payload: { id: activeId } }) },
+            { id: 'history', label: 'Show History', icon: <Clock size={15} />, run: () => dispatch({ type: 'TRIGGER_COMMAND', payload: 'toggleHistory' }) },
+            { id: 'library', label: 'Open Library', icon: <Library size={15} />, shortcut: shortcut('Shift', 'O'), run: () => dispatch({ type: 'NEW_TAB', payload: { url: 'underlay://library?view=history' } }) },
+            { id: 'downloads', label: 'Show Downloads', icon: <ArrowDownToLine size={15} />, run: () => dispatch({ type: 'TRIGGER_COMMAND', payload: 'toggleDownloads' }) },
+            { id: 'profile', label: 'Profile & Account', icon: <User size={15} />, run: () => dispatch({ type: 'TRIGGER_COMMAND', payload: 'toggleProfile' }) },
+            { id: 'settings', label: 'Settings', icon: <Settings size={15} />, shortcut: shortcut(','), run: () => dispatch({ type: 'TRIGGER_COMMAND', payload: 'toggleSettings' }) }
+        ];
+        const q = query.trim().toLowerCase();
+        if (!q) return commands;
+
+        const results: Item[] = [];
+        const target = resolveInput(query, state.settings.searchEngine);
+        if (target) {
+            results.push({
+                id: 'go',
+                label: looksLikeUrl(query) ? `Open ${query.trim()}` : `Search ${SEARCH_ENGINES[state.settings.searchEngine]?.name ?? 'Google'} for “${query.trim()}”`,
+                icon: looksLikeUrl(query) ? <Globe size={15} /> : <Search size={15} />,
+                run: () => dispatch({ type: 'NEW_TAB', payload: { url: target } })
+            });
+        }
+        results.push(...commands.filter(c => c.label.toLowerCase().includes(q)));
+        for (const tab of state.tabs) {
+            if (tab.url === NEW_TAB_URL) continue;
+            if (`${tab.title} ${tab.url}`.toLowerCase().includes(q)) {
+                results.push({
+                    id: `tab:${tab.id}`,
+                    label: tab.title || displayUrl(tab.url),
+                    detail: 'Switch to Tab',
+                    icon: tab.favicon ? <img src={tab.favicon} alt="" className="w-[15px] h-[15px] rounded-[3px]" /> : <AppWindow size={15} />,
+                    run: () => dispatch({ type: 'SWITCH_TAB', payload: { id: tab.id } })
+                });
+            }
+        }
+        for (const bookmark of state.bookmarks) {
+            if (results.length > 12) break;
+            if (`${bookmark.title} ${bookmark.url}`.toLowerCase().includes(q)) {
+                results.push({
+                    id: `bm:${bookmark.id}`,
+                    label: bookmark.title || displayUrl(bookmark.url),
+                    detail: displayUrl(bookmark.url),
+                    icon: <Star size={15} />,
+                    run: () => dispatch({ type: 'NEW_TAB', payload: { url: bookmark.url } })
+                });
+            }
+        }
+        return results;
+    }, [query, state.tabs, state.bookmarks, state.activeTabId, state.settings.searchEngine]);
+
+    useEffect(() => setSelected(0), [query]);
+    useEffect(() => {
+        listRef.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' });
+    }, [selected]);
+
+    const run = (item: Item | undefined) => {
+        if (!item) return;
+        onClose();
+        item.run();
+    };
+
+    const onKeyDown = (e: React.KeyboardEvent) => {
         if (e.key === 'ArrowDown') {
             e.preventDefault();
-            setSelectedIndex((prev) => (prev + 1) % filtered.length);
+            setSelected(i => Math.min(i + 1, items.length - 1));
         } else if (e.key === 'ArrowUp') {
             e.preventDefault();
-            setSelectedIndex((prev) => (prev - 1 + filtered.length) % filtered.length);
+            setSelected(i => Math.max(i - 1, 0));
         } else if (e.key === 'Enter') {
             e.preventDefault();
-            const cmd = filtered[selectedIndex];
-            if (cmd) {
-                cmd.action();
-                onClose();
-            }
+            run(items[selected]);
         } else if (e.key === 'Escape') {
+            e.preventDefault();
             onClose();
         }
     };
@@ -51,58 +115,51 @@ export function CommandPalette({ isOpen, onClose }: { isOpen: boolean, onClose: 
     return (
         <AnimatePresence>
             {isOpen && (
-                <div className="fixed inset-0 z-[100] flex items-start justify-center pt-[20vh]">
+                <div className="fixed inset-0 z-[110] flex items-start justify-center pt-[16vh]" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
                     <motion.div
-                        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                        className="absolute inset-0 bg-black/80"
-                        onClick={onClose} // Keep onClick on the overlay
-                    />
-                    <motion.div
-                        initial={{ scale: 0.95, opacity: 0, y: -20 }}
-                        animate={{ scale: 1, opacity: 1, y: 0 }}
-                        exit={{ scale: 0.95, opacity: 0, y: -20 }}
-                        transition={{ type: "spring", damping: 25, stiffness: 350 }}
-                        className="w-[500px] max-w-[90vw] bg-[#1a1a1e] border border-white/10 rounded-xl shadow-2xl relative overflow-hidden flex flex-col"
+                        initial={{ opacity: 0, scale: 0.97, y: -6 }}
+                        animate={{ opacity: 1, scale: 1, y: 0 }}
+                        exit={{ opacity: 0, scale: 0.98, transition: { duration: 0.1 } }}
+                        transition={{ duration: 0.2, ease: [0.32, 0.72, 0, 1] }}
+                        className="popover w-[600px] max-w-[90vw] overflow-hidden text-underlay-text"
+                        role="dialog"
+                        aria-label="Command palette"
                     >
-                        <div className="flex items-center gap-3 p-4 border-b border-white/5">
-                            <Command size={18} className="text-white/30" />
+                        <div className="flex items-center gap-3 px-4 h-14 border-b hairline">
+                            <Search size={20} className="text-underlay-text/40 shrink-0" />
                             <input
                                 ref={inputRef}
-                                className="bg-transparent border-none outline-none flex-1 text-lg text-white placeholder-white/20 font-light"
-                                placeholder="Type a command..."
                                 value={query}
-                                onChange={(e) => setQuery(e.target.value)}
-                                onKeyDown={handleKeyDown}
+                                onChange={e => setQuery(e.target.value)}
+                                onKeyDown={onKeyDown}
+                                placeholder="Search tabs, bookmarks and commands, or enter an address"
+                                className="flex-1 bg-transparent outline-none text-[18px] font-light placeholder:text-underlay-text/30"
+                                spellCheck={false}
+                                aria-label="Command"
                             />
-                            <div className="text-[10px] bg-white/10 px-2 py-0.5 rounded text-white/40 font-mono">ESC</div>
                         </div>
-
-                        <div className="max-h-[300px] overflow-y-auto p-2">
-                            {filtered.length === 0 && (
-                                <div className="p-4 text-center text-white/30 text-sm">No commands found</div>
-                            )}
-                            {filtered.map((cmd, i) => (
-                                <button
-                                    key={cmd.id}
-                                    className={`w-full flex items-center gap-3 p-3 rounded-lg text-sm transition-colors ${i === selectedIndex ? 'bg-blue-600/20 text-blue-200' : 'text-white/60 hover:bg-white/5'}`}
-                                    onClick={() => { cmd.action(); onClose(); }}
-                                    onMouseEnter={() => setSelectedIndex(i)}
+                        <div ref={listRef} className="max-h-[360px] overflow-y-auto p-1.5" role="listbox">
+                            {items.length === 0 && <div className="py-8 text-center text-[13px] text-underlay-text/40">No results</div>}
+                            {items.map((item, i) => (
+                                <div
+                                    key={item.id}
+                                    role="option"
+                                    aria-selected={i === selected}
+                                    onMouseMove={() => setSelected(i)}
+                                    onClick={() => run(item)}
+                                    className={`h-9 px-3 flex items-center gap-3 rounded-lg text-[13px] ${i === selected ? 'bg-underlay-accent text-white' : ''}`}
                                 >
-                                    <div className={i === selectedIndex ? 'text-blue-400' : 'text-white/40'}>{cmd.icon}</div>
-                                    <span className="flex-1 text-left">{cmd.label}</span>
-                                    {cmd.shortcut && (
-                                        <span className="text-[10px] font-mono opacity-50 bg-white/5 px-1.5 py-0.5 rounded">
-                                            {cmd.shortcut}
-                                        </span>
-                                    )}
-                                    {i === selectedIndex && <CornerDownLeft size={12} className="opacity-50" />}
-                                </button>
+                                    <span className={i === selected ? 'text-white' : 'text-underlay-text/55'}>{item.icon}</span>
+                                    <span className="truncate">{item.label}</span>
+                                    {item.detail && <span className={`truncate text-[12px] ${i === selected ? 'text-white/70' : 'text-underlay-text/40'}`}>{item.detail}</span>}
+                                    <span className="flex-1" />
+                                    {item.shortcut && <kbd className={`font-sans text-[12px] ${i === selected ? 'text-white/80' : 'text-underlay-text/40'}`}>{item.shortcut}</kbd>}
+                                </div>
                             ))}
                         </div>
                     </motion.div>
-                </div >
-            )
-            }
-        </AnimatePresence >
+                </div>
+            )}
+        </AnimatePresence>
     );
 }

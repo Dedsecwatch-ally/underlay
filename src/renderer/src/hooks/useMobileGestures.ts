@@ -4,7 +4,7 @@ import { useBrowser } from '../context/BrowserContext';
 import { isMobile } from '../utils/PlatformUtils';
 
 export function useMobileGestures() {
-    const { state, dispatch } = useBrowser();
+    const { dispatch } = useBrowser(false);
     const touchStart = useRef<{ x: number, y: number } | null>(null);
     const minSwipeDistance = 100;
 

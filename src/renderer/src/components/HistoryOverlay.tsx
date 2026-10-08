@@ -5,7 +5,7 @@ import { Clock, Star, Search, Tag, X, Download, ShieldCheck, Trash2 } from 'luci
 import classNames from 'classnames';
 
 export function HistoryOverlay({ isOpen, onClose }: { isOpen: boolean, onClose: () => void }) {
-    const { state, dispatch } = useBrowser();
+    const { state, dispatch } = useBrowser(isOpen);
     const [activeTab, setActiveTab] = useState<'history' | 'bookmarks' | 'downloads'>('history');
     const [search, setSearch] = useState('');
 

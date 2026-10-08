@@ -1,414 +1,336 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { BrowserProvider, useBrowser } from './context/BrowserContext';
+import { BrowserProvider, dispatch, getBrowserState, useBrowserState } from './context/BrowserContext';
+import { useBrowserStore, NEW_TAB_URL, Tab } from './store/browserStore';
 import { Titlebar } from './components/Titlebar';
-import { AddressBar } from './components/AddressBar';
 import { Toolbar } from './components/Toolbar';
-
-// Lazy load heavy overlays
-const HistoryOverlay = React.lazy(() => import('./components/HistoryOverlay').then(module => ({ default: module.HistoryOverlay })));
-const SettingsOverlay = React.lazy(() => import('./components/SettingsOverlay').then(module => ({ default: module.SettingsOverlay })));
-const CommandPalette = React.lazy(() => import('./components/CommandPalette').then(module => ({ default: module.CommandPalette })));
-const ProfileOverlay = React.lazy(() => import('./components/ProfileOverlay').then(module => ({ default: module.ProfileOverlay })));
-const DownloadsOverlay = React.lazy(() => import('./components/DownloadsOverlay').then(module => ({ default: module.DownloadsOverlay })));
 import { DownloadToast } from './components/DownloadToast';
-
-import { Activity } from 'lucide-react';
-import { useFPS } from './hooks/useFPS';
-import { useMobileGestures } from './hooks/useMobileGestures';
 import { NewTabPage } from './components/NewTabPage';
-
-import { LoadingScreen } from './components/LoadingScreen';
-import { getPlatformElectron, isMobile } from './utils/PlatformUtils';
 import { TabContent } from './components/TabContent';
-
-// New UI Components
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { PermissionOverlay } from './components/PermissionOverlay';
 import { ContextMenu } from './components/ContextMenu';
-import { CrashedTab } from './components/CrashedTab';
-import { WallpaperPreloader } from './components/WallpaperPreloader';
 import { Onboarding } from './components/Onboarding';
 import { LibraryPage } from './pages/LibraryPage';
+import { useMobileGestures } from './hooks/useMobileGestures';
+import { recordBlocked } from './hooks/usePrivacyStats';
+import { getPlatformElectron, isElectron } from './utils/PlatformUtils';
+import { webviews } from './utils/webviews';
+
+const HistoryOverlay = React.lazy(() => import('./components/HistoryOverlay').then(m => ({ default: m.HistoryOverlay })));
+const SettingsOverlay = React.lazy(() => import('./components/SettingsOverlay').then(m => ({ default: m.SettingsOverlay })));
+const CommandPalette = React.lazy(() => import('./components/CommandPalette').then(m => ({ default: m.CommandPalette })));
+const ProfileOverlay = React.lazy(() => import('./components/ProfileOverlay').then(m => ({ default: m.ProfileOverlay })));
+const DownloadsOverlay = React.lazy(() => import('./components/DownloadsOverlay').then(m => ({ default: m.DownloadsOverlay })));
+
+type Panel = 'history' | 'settings' | 'palette' | 'profile' | 'downloads' | null;
+
+const MINUTE = 60_000;
+
+// ---------------------------------------------------------------------------
+// Commands (keyboard shortcuts, menu items and toolbar buttons)
+// ---------------------------------------------------------------------------
+
+function activeWebview() {
+    return webviews.get(getBrowserState().activeTabId);
+}
+
+function selectTab(index: number) {
+    const { tabs } = getBrowserState();
+    const tab = index < 0 ? tabs[tabs.length - 1] : tabs[index];
+    if (tab) dispatch({ type: 'SWITCH_TAB', payload: { id: tab.id } });
+}
+
+function cycleTab(step: number) {
+    const { tabs, activeTabId } = getBrowserState();
+    const index = tabs.findIndex(t => t.id === activeTabId);
+    selectTab((index + step + tabs.length) % tabs.length);
+}
+
+function withWebview(fn: (webview: Electron.WebviewTag) => void) {
+    const webview = activeWebview();
+    if (!webview) return;
+    try {
+        fn(webview);
+    } catch (e) {
+        console.warn('[Command] Webview not ready:', e);
+    }
+}
+
+function zoom(delta: number | null) {
+    withWebview(webview => webview.setZoomLevel(delta === null ? 0 : Math.max(-3, Math.min(5, webview.getZoomLevel() + delta))));
+}
+
+// Fallback for the web/mobile build, where there is no main process to
+// translate key presses into commands.
+function commandForKey(e: KeyboardEvent): string | null {
+    const mod = e.metaKey || e.ctrlKey;
+    if (!mod) return null;
+    const key = e.key.toLowerCase();
+    if (e.shiftKey && key === 'n') return 'new-incognito-tab';
+    if (e.shiftKey && key === 't') return 'reopen-closed-tab';
+    if (e.shiftKey && key === 'o') return 'library';
+    const map: Record<string, string> = { t: 'new-tab', w: 'close-tab', l: 'focus-address-bar', k: 'command-palette', r: 'reload', '[': 'back', ']': 'forward', ',': 'settings' };
+    if (map[key]) return map[key];
+    if (/^[1-9]$/.test(key)) return `select-tab-${key}`;
+    return null;
+}
+
+// ---------------------------------------------------------------------------
+// Tabs
+// ---------------------------------------------------------------------------
+
+const TabView = React.memo(function TabView({ tab, isActive }: { tab: Tab; isActive: boolean }) {
+    let content: React.ReactNode;
+    if (tab.url.startsWith('underlay://library')) {
+        const view = tab.url.includes('bookmarks') ? 'bookmarks' : tab.url.includes('downloads') ? 'downloads' : 'history';
+        content = <LibraryPage initialView={view} isActive={isActive} />;
+    } else if (tab.url === NEW_TAB_URL) {
+        content = (
+            <NewTabPage
+                isActive={isActive}
+                incognito={tab.incognito}
+                onNavigate={(url: string) => dispatch({ type: 'LOAD_URL', payload: { id: tab.id, url } })}
+            />
+        );
+    } else {
+        content = (
+            <TabContent
+                id={tab.id}
+                url={tab.url}
+                isActive={isActive}
+                isSuspended={!!tab.suspended}
+                isIncognito={!!tab.incognito}
+                isCrashed={tab.status === 'crashed'}
+                readerActive={tab.readerActive}
+                readerContent={tab.readerContent}
+            />
+        );
+    }
+
+    // Inactive tabs stay mounted (keeping their page alive) but are taken out
+    // of layout and hit-testing entirely.
+    return (
+        <div
+            className="absolute inset-0 bg-underlay-bg"
+            style={{ visibility: isActive ? 'visible' : 'hidden', zIndex: isActive ? 1 : 0, contain: 'strict' }}
+            aria-hidden={!isActive}
+        >
+            {content}
+        </div>
+    );
+});
+
+// ---------------------------------------------------------------------------
+// Shell
+// ---------------------------------------------------------------------------
 
 export const BrowserShell: React.FC = () => {
-    const { state, dispatch } = useBrowser();
-    const fps = useFPS();
-    useMobileGestures(); // Enable Swipe Gestures on Mobile
+    const { tabs, activeTabId, theme, lowPowerMode, activeCommand, latestDownload } = useBrowserState(s => ({
+        tabs: s.tabs,
+        activeTabId: s.activeTabId,
+        theme: s.settings.theme,
+        lowPowerMode: s.settings.lowPowerMode,
+        activeCommand: s.activeCommand,
+        latestDownload: s.downloads[0]
+    }));
+    useMobileGestures();
 
-    const [showHistory, setShowHistory] = React.useState(false);
-
-    // Onboarding State
     const [isOnboarding, setIsOnboarding] = React.useState<boolean | null>(null);
+    const [panel, setPanel] = React.useState<Panel>(null);
+    const togglePanel = React.useCallback((next: Exclude<Panel, null>) => setPanel(p => (p === next ? null : next)), []);
+    const closePanel = React.useCallback(() => setPanel(null), []);
+    // Panels are loaded on first use and then stay mounted so they can animate
+    // out; they only subscribe to the store while open.
+    const [used, setUsed] = React.useState<Set<Panel>>(() => new Set());
+    React.useEffect(() => {
+        if (panel && !used.has(panel)) setUsed(prev => new Set(prev).add(panel));
+    }, [panel, used]);
 
     React.useEffect(() => {
-        const check = async () => {
-            const electron = getPlatformElectron();
-            const done = await electron.onboarding.checkStatus();
-            setIsOnboarding(!done);
-        };
-        check();
+        getPlatformElectron().onboarding.checkStatus()
+            .then(done => setIsOnboarding(!done))
+            .catch(() => setIsOnboarding(false));
     }, []);
-    const [showSettings, setShowSettings] = React.useState(false);
-    const [showPalette, setShowPalette] = React.useState(false);
-    const [showProfile, setShowProfile] = React.useState(false);
-    const [showDownloads, setShowDownloads] = React.useState(false);
-    const webviewRefs = React.useRef<{ [key: string]: any }>({});
 
-    // Check if any download is active
-    const isDownloading = state.downloads.some(d => d.state === 'progressing');
-
-    // Toast Logic
-    const [latestDownload, setLatestDownload] = React.useState<any>(null);
-    React.useEffect(() => {
-        if (state.downloads.length > 0) {
-            setLatestDownload(state.downloads[0]);
-        }
-    }, [state.downloads]);
-
-    // Auto Low Power Mode
-    React.useEffect(() => {
-        if (fps < 30 && !state.settings.lowPowerMode) {
-            console.log("FPS drop detected. Switching to Low Power Mode.");
-            dispatch({ type: 'SET_SETTING', payload: { key: 'lowPowerMode', value: true } });
-        } else if (fps > 55 && state.settings.lowPowerMode) {
-            // Optional: Auto recovery? Maybe keep off once triggered to be safe
-            // dispatch({ type: 'SET_SETTING', payload: { key: 'lowPowerMode', value: false } });
-        }
-    }, [fps]);
-
-    // Theme Management
-    React.useEffect(() => {
-        const applyTheme = () => {
-            const theme = state.settings.theme;
-            const isDark = theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
-
-            if (isDark) {
-                document.documentElement.classList.add('dark');
-                document.documentElement.classList.remove('light');
-            } else {
-                document.documentElement.classList.remove('dark');
-                document.documentElement.classList.add('light');
-            }
-        };
-
-        applyTheme();
-
-        const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-        const handler = () => {
-            if (state.settings.theme === 'system') applyTheme();
-        };
-
-        mediaQuery.addEventListener('change', handler);
-        return () => mediaQuery.removeEventListener('change', handler);
-    }, [state.settings.theme]);
-
-    // Apply class to body (Low Power Mode)
-    React.useEffect(() => {
-        if (state.settings.lowPowerMode) {
-            document.body.classList.add('low-power');
-        } else {
-            document.body.classList.remove('low-power');
-        }
-    }, [state.settings.lowPowerMode]);
-
-    // Global Shortcuts
-    React.useEffect(() => {
-        const handleKeyDown = (e: KeyboardEvent) => {
-            const isCmd = e.metaKey || e.ctrlKey;
-
-            if (isCmd && e.key === 'k') {
-                e.preventDefault();
-                setShowPalette(p => !p);
-            }
-            if (isCmd && e.key === 't') {
-                e.preventDefault();
-                dispatch({ type: 'NEW_TAB' });
-            }
-            if (isCmd && e.shiftKey && e.key === 'n') {
-                e.preventDefault();
-                dispatch({ type: 'NEW_TAB', payload: { incognito: true } });
-            }
-            // Library Shortcut (Firefox Style)
-            if (isCmd && e.shiftKey && (e.key === 'o' || e.key === 'O')) {
-                e.preventDefault();
-                dispatch({ type: 'NEW_TAB', payload: { url: 'underlay://library?view=history' } });
-            }
-            // Customize Toolbar Shortcut (temporary development trigger)
-            if (isCmd && e.altKey && (e.key === 'c' || e.key === 'C')) {
-                e.preventDefault();
-                dispatch({ type: 'TOGGLE_CUSTOMIZE_TOOLBAR' });
-            }
-            if (isCmd && e.key === 'w') {
-                e.preventDefault();
-                const active = state.activeTabId;
-                if (active) dispatch({ type: 'CLOSE_TAB', payload: { id: active } });
-            }
-            if (isCmd && e.key === 'l') {
-                e.preventDefault();
-                dispatch({ type: 'TRIGGER_COMMAND', payload: 'focusAddressBar' });
-            }
-            if (isCmd && e.key === 'r') {
-                e.preventDefault();
-                dispatch({ type: 'TRIGGER_COMMAND', payload: 'reload' });
-            }
-            if (isCmd && e.key === '[') {
-                e.preventDefault();
-                dispatch({ type: 'TRIGGER_COMMAND', payload: 'goBack' });
-            }
-            if (isCmd && e.key === ']') {
-                e.preventDefault();
-                dispatch({ type: 'TRIGGER_COMMAND', payload: 'goForward' });
-            }
-        };
-
-        window.addEventListener('keydown', handleKeyDown);
-        return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [state.activeTabId]);
-
-    // Handle Commands
-    React.useEffect(() => {
-        if (state.activeCommand && state.activeTabId) {
-            const webview = webviewRefs.current[state.activeTabId];
-            if (webview) {
-                try {
-                    if (state.activeCommand.type === 'goBack') {
-                        if (webview.isLoading()) webview.stop();
-                        if (webview.canGoBack()) webview.goBack();
-                    }
-                    if (state.activeCommand.type === 'goForward' && webview.canGoForward()) webview.goForward();
-                    if (state.activeCommand.type === 'reload') webview.reload();
-                    if (state.activeCommand.type === 'stop') webview.stop();
-                } catch (e) {
-                    console.error("Webview command failed", e);
+    const runCommand = React.useCallback((command: string) => {
+        const { activeTabId: active } = getBrowserState();
+        switch (command) {
+            case 'new-tab': return dispatch({ type: 'NEW_TAB' });
+            case 'new-incognito-tab': return dispatch({ type: 'NEW_TAB', payload: { incognito: true } });
+            case 'reopen-closed-tab': return dispatch({ type: 'REOPEN_CLOSED_TAB' });
+            case 'close-tab': return active && dispatch({ type: 'CLOSE_TAB', payload: { id: active } });
+            case 'focus-address-bar': return dispatch({ type: 'TRIGGER_COMMAND', payload: 'focusAddressBar' });
+            case 'reload': return withWebview(w => w.reload());
+            case 'hard-reload': return withWebview(w => w.reloadIgnoringCache());
+            case 'stop': return withWebview(w => w.stop());
+            case 'back': return withWebview(w => { if (w.canGoBack()) w.goBack(); });
+            case 'forward': return withWebview(w => { if (w.canGoForward()) w.goForward(); });
+            case 'zoom-in': return zoom(0.5);
+            case 'zoom-out': return zoom(-0.5);
+            case 'zoom-reset': return zoom(null);
+            case 'next-tab': return cycleTab(1);
+            case 'prev-tab': return cycleTab(-1);
+            case 'command-palette': return togglePanel('palette');
+            case 'settings': return setPanel('settings');
+            case 'library': return dispatch({ type: 'NEW_TAB', payload: { url: 'underlay://library?view=history' } });
+            case 'customize-toolbar': return dispatch({ type: 'TOGGLE_CUSTOMIZE_TOOLBAR' });
+            default:
+                if (command.startsWith('select-tab-')) {
+                    const n = Number(command.slice('select-tab-'.length));
+                    selectTab(n === 9 ? -1 : n - 1);
                 }
+        }
+    }, [togglePanel]);
+
+    // Shortcuts & menu items arrive from the main process.
+    React.useEffect(() => {
+        if (isElectron) return window.electron.onCommand(runCommand);
+        const onKeyDown = (e: KeyboardEvent) => {
+            const command = commandForKey(e);
+            if (command) {
+                e.preventDefault();
+                runCommand(command);
             }
+        };
+        window.addEventListener('keydown', onKeyDown);
+        return () => window.removeEventListener('keydown', onKeyDown);
+    }, [runCommand]);
 
-            // UI Toggle Commands
-            if (state.activeCommand.type === 'toggleHistory') setShowHistory(p => !p);
-            if (state.activeCommand.type === 'toggleSettings') setShowSettings(p => !p);
-            if (state.activeCommand.type === 'toggleDownloads') setShowDownloads(p => !p);
-            if (state.activeCommand.type === 'toggleProfile') setShowProfile(p => !p);
-
+    // Toolbar buttons go through the store's command channel.
+    React.useEffect(() => {
+        if (!activeCommand) return;
+        const map: Partial<Record<typeof activeCommand.type, () => void>> = {
+            goBack: () => runCommand('back'),
+            goForward: () => runCommand('forward'),
+            reload: () => runCommand('reload'),
+            stop: () => runCommand('stop'),
+            toggleHistory: () => togglePanel('history'),
+            toggleSettings: () => togglePanel('settings'),
+            toggleDownloads: () => togglePanel('downloads'),
+            toggleProfile: () => togglePanel('profile')
+        };
+        const handler = map[activeCommand.type];
+        if (handler) {
+            handler();
             dispatch({ type: 'CLEAR_COMMAND' });
         }
-    }, [state.activeCommand, state.activeTabId]);
+        // 'focusAddressBar' is consumed (and cleared) by the address bar.
+    }, [activeCommand, runCommand, togglePanel]);
 
-    // Performance Event Listener
+    // Theme
     React.useEffect(() => {
-        const electron = getPlatformElectron();
-        const cleanup = electron.onPerformanceUpdate((data) => {
-            state.tabs.forEach(tab => {
-                const webview = webviewRefs.current[tab.id];
-                if (webview && webview.getWebContentsId) {
-                    try {
-                        const wcId = webview.getWebContentsId();
-                        const processInfo = data.processMap.find((p: any) => p.id === wcId);
-                        if (processInfo && tab.pid !== processInfo.pid) {
-                            dispatch({ type: 'UPDATE_TAB', payload: { id: tab.id, data: { pid: processInfo.pid } } });
-                        }
-                    } catch (e) { }
-                }
-            });
-        });
-        return cleanup;
-    }, [state.tabs]);
-
-    // Download Listener
-    React.useEffect(() => {
-        const electron = getPlatformElectron();
-        const cleanupDownloads = electron.onDownloadUpdate((data) => {
-            dispatch({ type: 'UPDATE_DOWNLOAD', payload: data });
-        });
-        return cleanupDownloads;
-    }, []);
-
-    // Privacy Shield Listener (Tracker Blocking)
-    React.useEffect(() => {
-        if (!window.electron?.privacy?.onTrackerBlockedBatch) return;
-
-        const cleanup = window.electron.privacy.onTrackerBlockedBatch((batch: any[]) => {
-            // Determine updates
-            batch.forEach(item => {
-                if (!item.tabId) return;
-                Object.keys(webviewRefs.current).forEach(tabId => {
-                    try {
-                        const wv = webviewRefs.current[tabId];
-                        // Match by webContentsID
-                        if (wv && wv.getWebContentsId && wv.getWebContentsId() === item.tabId) {
-                            dispatch({ type: 'ADD_BLOCKED_ITEMS', payload: { id: tabId, items: [item] } });
-                        }
-                    } catch (e) { }
-                });
-            });
-        });
-        return cleanup;
-    }, []);
-
-
-
-    // Auto-Suspend Tabs (Memory Optimization)
-    React.useEffect(() => {
-        const checkSuspension = () => {
-            if (state.settings.lowPowerMode) {
-                const now = Date.now();
-                state.tabs.forEach(tab => {
-                    // Suspend if background & inactive for > 5 minutes (or 1 in low power)
-                    if (tab.id !== state.activeTabId && !tab.suspended && tab.lastAccessed) {
-                        // CRITICAL: Do not suspend if audio is playing (OTT/Music)
-                        if (tab.audible) return;
-
-                        if (now - tab.lastAccessed > 5 * 60 * 1000) {
-                            console.log(`[AutoSuspend] Suspending inactive tab: ${tab.title}`);
-                            dispatch({ type: 'UPDATE_TAB', payload: { id: tab.id, data: { suspended: true } } });
-                        }
-                    }
-                });
-            }
+        const media = window.matchMedia('(prefers-color-scheme: dark)');
+        const apply = () => {
+            const dark = theme === 'dark' || (theme === 'system' && media.matches);
+            document.documentElement.classList.toggle('dark', dark);
+            document.documentElement.classList.toggle('light', !dark);
         };
-        const interval = setInterval(checkSuspension, 60000); // Check every minute
+        apply();
+        media.addEventListener('change', apply);
+        return () => media.removeEventListener('change', apply);
+    }, [theme]);
+
+    React.useEffect(() => {
+        document.body.classList.toggle('low-power', lowPowerMode);
+    }, [lowPowerMode]);
+
+    // Main-process events
+    React.useEffect(() => {
+        if (!isElectron) return;
+        const electron = window.electron;
+        const cleanups = [
+            electron.onDownloadUpdate(data => dispatch({ type: 'UPDATE_DOWNLOAD', payload: data })),
+            electron.onOpenTab(({ url, incognito, background }) => dispatch({ type: 'NEW_TAB', payload: { url, incognito, background } })),
+            electron.onPowerModeChanged(({ isOnBattery }) => getBrowserState().setOnBattery(isOnBattery)),
+            electron.account.onChanged(account => dispatch({ type: 'SET_ACCOUNT', payload: account })),
+            electron.privacy.onTrackerBlockedBatch(batch => {
+                const byTab = new Map<string, any[]>();
+                for (const item of batch) {
+                    const tabId = webviews.tabForContents(item.tabId);
+                    if (!tabId) continue;
+                    if (!byTab.has(tabId)) byTab.set(tabId, []);
+                    byTab.get(tabId)!.push(item);
+                }
+                byTab.forEach((items, id) => dispatch({ type: 'ADD_BLOCKED_ITEMS', payload: { id, items } }));
+                recordBlocked(batch);
+            })
+        ];
+
+        electron.getPowerState().then(({ isOnBattery }) => getBrowserState().setOnBattery(isOnBattery)).catch(() => { });
+        electron.account.get().then(account => dispatch({ type: 'SET_ACCOUNT', payload: account })).catch(() => { });
+
+        // Move passwords saved by older versions into the encrypted vault.
+        const legacy = getBrowserState().legacyPasswords;
+        if (legacy?.length) {
+            electron.vault.importLegacy(legacy)
+                .then(() => getBrowserState().clearLegacyPasswords())
+                .catch(e => console.error('[Vault] Migration failed; will retry next launch:', e));
+        }
+
+        // When the last private tab closes, wipe everything it left behind.
+        const unsubscribe = useBrowserStore.subscribe((state, prev) => {
+            if (state.tabs !== prev.tabs && prev.tabs.some(t => t.incognito) && !state.tabs.some(t => t.incognito)) {
+                electron.privacy.clearIncognito().catch(() => { });
+            }
+        });
+
+        return () => {
+            cleanups.forEach(fn => fn());
+            unsubscribe();
+        };
+    }, []);
+
+    // Memory saver: put background tabs to sleep after a period of inactivity
+    // (sooner on battery or in Low Power Mode). Tabs playing audio are spared.
+    React.useEffect(() => {
+        const interval = setInterval(() => {
+            const { tabs: all, activeTabId: active, settings, onBattery, suspendTab } = getBrowserState();
+            const limit = settings.lowPowerMode ? 5 * MINUTE : onBattery ? 15 * MINUTE : 60 * MINUTE;
+            const now = Date.now();
+            for (const tab of all) {
+                if (tab.id === active || tab.suspended || tab.audible || tab.url === NEW_TAB_URL) continue;
+                if (now - (tab.lastAccessed ?? now) > limit) suspendTab(tab.id);
+            }
+        }, MINUTE);
         return () => clearInterval(interval);
-    }, [state.tabs, state.activeTabId, state.settings.lowPowerMode]);
+    }, []);
 
-
-    if (isOnboarding === null) return null; // Loading state
+    if (isOnboarding === null) return null;
 
     return (
         <div className="h-full flex flex-col bg-underlay-bg text-underlay-text font-sans relative">
             <AnimatePresence>
                 {isOnboarding && (
-                    <motion.div
-                        initial={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        className="fixed inset-0 z-[200]"
-                    >
+                    <motion.div exit={{ opacity: 0 }} transition={{ duration: 0.4 }} className="fixed inset-0 z-[200]">
                         <Onboarding onComplete={() => setIsOnboarding(false)} />
                     </motion.div>
                 )}
             </AnimatePresence>
-            {/* Overlays moved to bottom for Z-Index Stacking */}
 
             <DownloadToast latestDownload={latestDownload} />
             <PermissionOverlay />
             <ContextMenu />
-            <WallpaperPreloader />
 
             <Titlebar />
-
-            {/* Main Toolbar handling all navigation and inputs */}
             <Toolbar />
 
-            {/* Content Area */}
-
-            <div className="flex-1 relative flex overflow-hidden">
-                <div className="flex-1 relative bg-[#0f0f11]">
-                    {state.tabs.map(tab => (
-                        <div
-                            key={tab.id}
-                            className="absolute inset-0 bg-[#0f0f11]"
-                            style={{
-                                visibility: tab.id === state.activeTabId ? 'visible' : 'hidden',
-                                zIndex: tab.id === state.activeTabId ? 1 : 0,
-                                opacity: tab.id === state.activeTabId ? 1 : 0, // Optional fade
-                                pointerEvents: tab.id === state.activeTabId ? 'auto' : 'none',
-                                // COMPOSITOR OPTIMIZATION
-                                transform: 'translate3d(0,0,0)', // Force hardware acceleration
-                                willChange: 'transform' // Hint to browser to create a layer
-                            }}
-                        >
-
-
-                            {tab.url.startsWith('underlay://library') ? (
-                                <LibraryPage
-                                    initialView={
-                                        tab.url.includes('bookmarks') ? 'bookmarks' :
-                                            tab.url.includes('downloads') ? 'downloads' :
-                                                'history'
-                                    }
-                                />
-                            ) : tab.url === 'underlay://newtab' ? (
-                                <NewTabPage
-                                    onNavigate={(url: string) => dispatch({ type: 'LOAD_URL', payload: { id: tab.id, url } })}
-                                    incognito={tab.incognito}
-                                />
-                            ) : (
-                                <TabContent
-                                    id={tab.id}
-                                    url={tab.url}
-                                    isActive={tab.id === state.activeTabId}
-                                    isSuspended={!!tab.suspended}
-                                    isIncognito={!!tab.incognito}
-                                    onCrashed={() => {
-                                        console.warn(`Tab ${tab.id} crashed.`);
-                                        dispatch({ type: 'UPDATE_TAB', payload: { id: tab.id, data: { status: 'crashed' } } });
-                                    }}
-                                    onUnresponsive={() => {
-                                        console.warn(`Tab ${tab.id} is unresponsive.`);
-                                        // Do not immediately kill; let it recover
-                                    }}
-                                    onDidFailLoad={() => {
-                                        console.warn(`Tab ${tab.id} failed to load.`);
-                                        // Optional: dispatch({ type: 'UPDATE_TAB', payload: { id: tab.id, data: { status: 'crashed' } } })
-                                    }}
-                                    onDidStartLoading={() => dispatch({ type: 'UPDATE_TAB', payload: { id: tab.id, data: { status: 'loading' } } })}
-                                    onDidStopLoading={({ url, title }) => {
-                                        dispatch({ type: 'UPDATE_TAB', payload: { id: tab.id, data: { status: 'ready', title, url } } });
-                                        if (!tab.incognito && !url.includes('browserbench.org')) {
-                                            dispatch({ type: 'ADD_HISTORY', payload: { url, title } });
-                                        }
-                                    }}
-                                    onDidNavigate={(url) => dispatch({ type: 'UPDATE_TAB', payload: { id: tab.id, data: { url } } })}
-                                    onDomReady={() => {
-                                        // Optional DOM ready logic
-                                    }}
-                                    onPageTitleUpdated={(title) => dispatch({ type: 'UPDATE_TAB', payload: { id: tab.id, data: { title } } })}
-                                    onPageFaviconUpdated={(favicon) => {
-                                        // Placeholder for favicon updates
-                                    }}
-                                    onNewWindow={(url) => dispatch({ type: 'NEW_TAB', payload: { url } })}
-                                    onProfileDetected={(profile) => {
-                                        dispatch({
-                                            type: 'UPDATE_PROFILE',
-                                            payload: {
-                                                isAuthenticated: true,
-                                                name: profile.name,
-                                                email: profile.email,
-                                                avatar: profile.avatar
-                                            }
-                                        });
-                                        // We just update the store. No redirection needed.
-                                    }}
-                                    onMediaStartedPlaying={() => dispatch({ type: 'UPDATE_TAB', payload: { id: tab.id, data: { audible: true } } })}
-                                    onMediaPaused={() => dispatch({ type: 'UPDATE_TAB', payload: { id: tab.id, data: { audible: false } } })}
-                                    onWebviewReady={(webview) => {
-                                        webviewRefs.current[tab.id] = webview;
-                                    }}
-                                    readerActive={!!tab.readerActive}
-                                    readerContent={tab.readerContent}
-                                    onReaderParsed={(data) => dispatch({ type: 'UPDATE_TAB', payload: { id: tab.id, data: { readerContent: data } } })}
-                                />
-                            )}
-                        </div>
-                    ))}
-
-                    {state.tabs.length === 0 && (
-                        <div className="absolute inset-0 flex items-center justify-center text-white/20">
-                            No tabs open
-                        </div>
-                    )}
-                </div>
-            </div>
+            <main className="flex-1 relative overflow-hidden bg-underlay-bg">
+                {tabs.map(tab => (
+                    <TabView key={tab.id} tab={tab} isActive={tab.id === activeTabId} />
+                ))}
+            </main>
 
             <React.Suspense fallback={null}>
-                <CommandPalette isOpen={showPalette} onClose={() => setShowPalette(false)} />
-                <HistoryOverlay isOpen={showHistory} onClose={() => setShowHistory(false)} />
-                <SettingsOverlay isOpen={showSettings} onClose={() => setShowSettings(false)} />
-                <ProfileOverlay isOpen={showProfile} onClose={() => setShowProfile(false)} />
-                <DownloadsOverlay isOpen={showDownloads} onClose={() => setShowDownloads(false)} />
+                {used.has('palette') && <CommandPalette isOpen={panel === 'palette'} onClose={closePanel} />}
+                {used.has('history') && <HistoryOverlay isOpen={panel === 'history'} onClose={closePanel} />}
+                {used.has('settings') && <SettingsOverlay isOpen={panel === 'settings'} onClose={closePanel} />}
+                {used.has('profile') && <ProfileOverlay isOpen={panel === 'profile'} onClose={closePanel} />}
+                {used.has('downloads') && <DownloadsOverlay isOpen={panel === 'downloads'} onClose={closePanel} />}
             </React.Suspense>
         </div>
     );
-}
+};
 
 function App() {
     return (

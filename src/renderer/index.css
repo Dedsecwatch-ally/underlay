@@ -2,22 +2,34 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-    --underlay-bg: #0f0f11;
-    --underlay-surface: #1a1a1e;
-    --underlay-glass: rgba(20, 20, 25, 0.8);
-    --underlay-accent: #3b82f6;
-    --underlay-text: #ededed;
-    --underlay-border: rgba(255, 255, 255, 0.1);
+/* -------------------------------------------------------------------------
+   Design tokens. Colours are RGB channels so Tailwind's opacity modifiers
+   (e.g. text-underlay-text/40) work.
+   ------------------------------------------------------------------------- */
+
+:root,
+.dark {
+    color-scheme: dark;
+    --underlay-bg: 16 16 18;
+    --underlay-surface: 28 28 31;
+    --underlay-elevated: 38 38 42;
+    --underlay-text: 245 245 247;
+    --underlay-accent: 10 132 255;
+    --underlay-glass: rgb(28 28 31 / 0.72);
+    --underlay-hairline: rgb(255 255 255 / 0.08);
+    --underlay-focus: rgb(10 132 255 / 0.55);
 }
 
 .light {
-    --underlay-bg: #f3f4f6;
-    --underlay-surface: #ffffff;
-    --underlay-glass: rgba(255, 255, 255, 0.8);
-    --underlay-accent: #2563eb;
-    --underlay-text: #1f2937;
-    --underlay-border: rgba(0, 0, 0, 0.1);
+    color-scheme: light;
+    --underlay-bg: 236 236 238;
+    --underlay-surface: 250 250 251;
+    --underlay-elevated: 255 255 255;
+    --underlay-text: 29 29 31;
+    --underlay-accent: 0 113 227;
+    --underlay-glass: rgb(250 250 251 / 0.78);
+    --underlay-hairline: rgb(0 0 0 / 0.1);
+    --underlay-focus: rgb(0 113 227 / 0.45);
 }
 
 html,
@@ -26,37 +38,180 @@ body,
     height: 100%;
     margin: 0;
     overflow: hidden;
-    background-color: var(--underlay-bg);
-
-    /* Mobile Safe Area */
-    padding-top: env(safe-area-inset-top);
-    padding-bottom: env(safe-area-inset-bottom);
-    padding-left: env(safe-area-inset-left);
-    padding-right: env(safe-area-inset-right);
-    color: #ededed;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background-color: rgb(var(--underlay-bg));
+    color: rgb(var(--underlay-text));
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", Inter, Roboto, Helvetica, Arial, sans-serif;
+    font-size: 13px;
     -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    font-feature-settings: "cv11", "ss01";
 }
 
-.glass {
-    background: var(--underlay-glass);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
-    border: 1px solid rgba(255, 255, 255, 0.05);
+#root {
+    /* Mobile safe areas */
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
 }
 
-.glass-panel {
-    background: rgba(10, 10, 12, 0.85);
-    backdrop-filter: blur(40px);
-    -webkit-backdrop-filter: blur(40px);
-    border-left: 1px solid rgba(255, 255, 255, 0.08);
-    box-shadow: -10px 0 30px rgba(0, 0, 0, 0.5);
+body {
+    user-select: none;
+    cursor: default;
 }
 
-/* Premium Scrollbars */
+::selection {
+    background: rgb(var(--underlay-accent) / 0.35);
+}
+
+/* Keyboard focus is always visible; mouse focus never shows a ring. */
+:focus {
+    outline: none;
+}
+
+:focus-visible {
+    outline: 2px solid var(--underlay-focus);
+    outline-offset: 2px;
+    border-radius: 6px;
+}
+
+input,
+textarea,
+[contenteditable="true"] {
+    user-select: text;
+    cursor: text;
+}
+
+button {
+    cursor: default;
+}
+
+/* -------------------------------------------------------------------------
+   Window dragging. Only explicit regions drag the window; everything
+   interactive inside them opts out.
+   ------------------------------------------------------------------------- */
+
+.app-region-drag,
+.draggable {
+    -webkit-app-region: drag;
+}
+
+.app-region-no-drag,
+.non-draggable,
+.app-region-drag :is(button, input, textarea, select, a, [role="button"], [role="tab"], .interactive) {
+    -webkit-app-region: no-drag;
+}
+
+webview {
+    -webkit-app-region: no-drag;
+}
+
+/* -------------------------------------------------------------------------
+   Components
+   ------------------------------------------------------------------------- */
+
+@layer components {
+    .glass {
+        background: var(--underlay-glass);
+        backdrop-filter: saturate(180%) blur(24px);
+        -webkit-backdrop-filter: saturate(180%) blur(24px);
+    }
+
+    .glass-panel {
+        background: var(--underlay-glass);
+        backdrop-filter: saturate(180%) blur(30px);
+        -webkit-backdrop-filter: saturate(180%) blur(30px);
+        border-left: 1px solid var(--underlay-hairline);
+        box-shadow: -10px 0 30px rgb(0 0 0 / 0.35);
+    }
+
+    .popover {
+        @apply rounded-xl shadow-popover;
+        background: rgb(var(--underlay-elevated) / 0.92);
+        backdrop-filter: saturate(180%) blur(30px);
+        -webkit-backdrop-filter: saturate(180%) blur(30px);
+        border: 0.5px solid var(--underlay-hairline);
+    }
+
+    .sheet {
+        @apply rounded-2xl shadow-sheet;
+        background: rgb(var(--underlay-surface));
+        border: 0.5px solid var(--underlay-hairline);
+    }
+
+    .hairline {
+        border-color: var(--underlay-hairline);
+    }
+
+    .btn-primary {
+        @apply inline-flex items-center justify-center gap-1.5 h-8 px-3.5 rounded-lg text-[13px] font-medium text-white transition-[background-color,transform] duration-150 active:scale-[0.97] disabled:opacity-40 disabled:pointer-events-none;
+        background: rgb(var(--underlay-accent));
+    }
+
+    .btn-primary:hover {
+        background: rgb(var(--underlay-accent) / 0.88);
+    }
+
+    .btn-secondary {
+        @apply inline-flex items-center justify-center gap-1.5 h-8 px-3.5 rounded-lg text-[13px] font-medium transition-[background-color,transform] duration-150 active:scale-[0.97] disabled:opacity-40 disabled:pointer-events-none;
+        background: rgb(var(--underlay-text) / 0.08);
+        color: rgb(var(--underlay-text));
+    }
+
+    .btn-secondary:hover {
+        background: rgb(var(--underlay-text) / 0.13);
+    }
+
+    .btn-destructive {
+        @apply inline-flex items-center justify-center gap-1.5 h-8 px-3.5 rounded-lg text-[13px] font-medium text-white transition-[background-color,transform] duration-150 active:scale-[0.97] disabled:opacity-40;
+        background: rgb(255 69 58);
+    }
+
+    .btn-destructive:hover {
+        background: rgb(255 69 58 / 0.88);
+    }
+
+    .icon-button {
+        @apply relative inline-flex items-center justify-center w-8 h-8 rounded-lg transition-[background-color,color,transform] duration-150 active:scale-[0.94] disabled:opacity-30 disabled:pointer-events-none;
+        color: rgb(var(--underlay-text) / 0.62);
+    }
+
+    .icon-button:hover {
+        color: rgb(var(--underlay-text));
+        background: rgb(var(--underlay-text) / 0.08);
+    }
+
+    .icon-button[data-active="true"] {
+        color: rgb(var(--underlay-text));
+        background: rgb(var(--underlay-text) / 0.1);
+    }
+
+    .text-field {
+        @apply w-full h-9 px-3 rounded-lg text-[13px] outline-none transition-[box-shadow,background-color] duration-150;
+        background: rgb(var(--underlay-text) / 0.06);
+        color: rgb(var(--underlay-text));
+        box-shadow: inset 0 0 0 0.5px var(--underlay-hairline);
+    }
+
+    .text-field::placeholder {
+        color: rgb(var(--underlay-text) / 0.35);
+    }
+
+    .text-field:focus {
+        box-shadow: inset 0 0 0 1px rgb(var(--underlay-accent) / 0.8), 0 0 0 3px var(--underlay-focus);
+    }
+
+    .section-label {
+        @apply text-[11px] font-semibold uppercase tracking-[0.06em];
+        color: rgb(var(--underlay-text) / 0.45);
+    }
+}
+
+/* -------------------------------------------------------------------------
+   Scrollbars
+   ------------------------------------------------------------------------- */
+
 ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
+    width: 10px;
+    height: 10px;
 }
 
 ::-webkit-scrollbar-track {
@@ -64,55 +219,57 @@ body,
 }
 
 ::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.1);
-    border-radius: 3px;
+    background: rgb(var(--underlay-text) / 0.18);
+    border-radius: 10px;
+    border: 3px solid transparent;
+    background-clip: padding-box;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-    background: rgba(255, 255, 255, 0.2);
+    background: rgb(var(--underlay-text) / 0.3);
+    border: 3px solid transparent;
+    background-clip: padding-box;
 }
 
-.draggable {
-    -webkit-app-region: drag;
+.no-scrollbar::-webkit-scrollbar {
+    display: none;
 }
 
+/* -------------------------------------------------------------------------
+   Accessibility & power
+   ------------------------------------------------------------------------- */
 
-.non-draggable {
-    -webkit-app-region: no-drag !important;
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
 }
 
-.dragging {
-    -webkit-app-region: drag;
+@media (prefers-reduced-transparency: reduce) {
+    .glass,
+    .glass-panel,
+    .popover {
+        backdrop-filter: none;
+        -webkit-backdrop-filter: none;
+        background: rgb(var(--underlay-elevated));
+    }
 }
 
-.app-region-drag {
-    -webkit-app-region: drag;
+/* Low Power Mode: drop the expensive compositing effects. */
+body.low-power .glass,
+body.low-power .glass-panel,
+body.low-power .popover,
+body.low-power [class*="backdrop-blur"] {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
 }
 
-.app-region-no-drag {
-    -webkit-app-region: no-drag !important;
-}
-
-body {
-    -webkit-app-region: drag;
-    user-select: none;
-}
-
-/* Ensure inputs and buttons are always interactive and not draggable */
-button,
-input,
-textarea,
-a,
-select,
-[role="button"],
-.interactive,
-webview {
-    -webkit-app-region: no-drag !important;
-}
-
-/* Ensure inputs are selectable */
-input,
-textarea {
-    user-select: text;
-    -webkit-user-select: text;
+body.low-power .glass,
+body.low-power .popover {
+    background: rgb(var(--underlay-elevated));
 }

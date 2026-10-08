@@ -1,6 +1,4 @@
-
-import { useState, useEffect } from 'react';
-import { useBrowser } from '../context/BrowserContext';
+import { useEffect, useState } from 'react';
 
 export interface PrivacyStats {
     adsBlocked: number;
@@ -8,114 +6,62 @@ export interface PrivacyStats {
     bandwidthSavedBytes: number;
 }
 
-export function usePrivacyStats() {
-    const { state } = useBrowser();
-    const [stats, setStats] = useState<PrivacyStats>({
-        adsBlocked: 0,
-        trackersBlocked: 0,
-        bandwidthSavedBytes: 0
-    });
+// Rough averages used to estimate data saved by blocking.
+const AD_BYTES = 85 * 1024;
+const TRACKER_BYTES = 3 * 1024;
+const STORAGE_KEY = 'underlay-privacy-stats';
+const EVENT = 'underlay-privacy-stats';
 
-    // Load initial stats
-    useEffect(() => {
-        const storedAds = parseInt(localStorage.getItem('stats_ads') || '0', 10);
-        const storedTrackers = parseInt(localStorage.getItem('stats_trackers') || '0', 10);
-        const storedBandwidth = parseInt(localStorage.getItem('stats_bandwidth') || '0', 10);
-
-        setStats({
-            adsBlocked: storedAds,
-            trackersBlocked: storedTrackers,
-            bandwidthSavedBytes: storedBandwidth
-        });
-    }, []);
-
-    // Real-time Privacy Event Listener
-    useEffect(() => {
-        const handleBlocked = (_event: any, data: { url: string, domain: string, type: string, timestamp: number }) => {
-            setStats(prev => {
-                let adsIncr = 0;
-                let trackersIncr = 0;
-                let bwIncr = 0;
-
-                if (data.type === 'Ad' || data.type === 'YouTube Ad') {
-                    adsIncr = 1;
-                    bwIncr = 85 * 1024; // Avg ad size ~85KB
-                } else {
-                    trackersIncr = 1;
-                    bwIncr = 3 * 1024; // Avg tracker script ~3KB
-                }
-
-                const nextStats = {
-                    adsBlocked: prev.adsBlocked + adsIncr,
-                    trackersBlocked: prev.trackersBlocked + trackersIncr,
-                    bandwidthSavedBytes: prev.bandwidthSavedBytes + bwIncr
-                };
-
-                // Persist
-                localStorage.setItem('stats_ads', nextStats.adsBlocked.toString());
-                localStorage.setItem('stats_trackers', nextStats.trackersBlocked.toString());
-                localStorage.setItem('stats_bandwidth', nextStats.bandwidthSavedBytes.toString());
-
-                return nextStats;
-            });
-        };
-
-        // @ts-ignore
-        if (window.electron && window.electron.privacy && window.electron.privacy.onTrackerBlocked) {
-            // @ts-ignore
-            const unsub = window.electron.privacy.onTrackerBlocked((data: any) => {
-                handleBlocked(null, data);
-            });
-            return () => {
-                if (unsub) unsub();
-            };
-        }
-        return () => { };
-    }, []);
-
-    // Navigation-based updates (Simulation for "Scanning" effect on new usage)
-    useEffect(() => {
-        // We trigger an update whenever the active tab URL changes (navigation)
-        const activeTab = state.tabs.find(t => t.id === state.activeTabId);
-        if (!activeTab || activeTab.url === 'underlay://newtab') return;
-
-        // Function to increment stats with some variance
-        const incrementStats = () => {
-            setStats(prev => {
-                // Heuristic: 1 page load ~= 1-3 ads, 2-5 trackers (on top of real ones)
-                const newAds = Math.floor(Math.random() * 2);
-                const newTrackers = Math.floor(Math.random() * 3) + 1;
-                const newBandwidth = Math.floor(Math.random() * 0.5 * 1024 * 1024);
-
-                const nextStats = {
-                    adsBlocked: prev.adsBlocked + newAds,
-                    trackersBlocked: prev.trackersBlocked + newTrackers,
-                    bandwidthSavedBytes: prev.bandwidthSavedBytes + newBandwidth
-                };
-
-                // Persist immediately
-                localStorage.setItem('stats_ads', nextStats.adsBlocked.toString());
-                localStorage.setItem('stats_trackers', nextStats.trackersBlocked.toString());
-                localStorage.setItem('stats_bandwidth', nextStats.bandwidthSavedBytes.toString());
-
-                return nextStats;
-            });
-        };
-
-        // Trigger simulation on "navigation" (dependency change)
-        const timer = setTimeout(incrementStats, 2000);
-
-        return () => clearTimeout(timer);
-    }, [state.tabs.find(t => t.id === state.activeTabId)?.url]);
-
-    return stats;
+function load(): PrivacyStats {
+    try {
+        const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
+        if (parsed && typeof parsed.trackersBlocked === 'number') return parsed;
+    } catch { }
+    // Carry over counters written by older versions.
+    return {
+        adsBlocked: Number(localStorage.getItem('stats_ads')) || 0,
+        trackersBlocked: Number(localStorage.getItem('stats_trackers')) || 0,
+        bandwidthSavedBytes: Number(localStorage.getItem('stats_bandwidth')) || 0
+    };
 }
 
-export function formatBytes(bytes: number, decimals = 2) {
+let stats = load();
+
+/** Called once per batch of blocked requests reported by the main process. */
+export function recordBlocked(batch: Array<{ type: string }>) {
+    if (!batch.length) return;
+    let ads = 0;
+    let trackers = 0;
+    for (const item of batch) {
+        if (item.type === 'Ad') ads++;
+        else trackers++;
+    }
+    stats = {
+        adsBlocked: stats.adsBlocked + ads,
+        trackersBlocked: stats.trackersBlocked + trackers,
+        bandwidthSavedBytes: stats.bandwidthSavedBytes + ads * AD_BYTES + trackers * TRACKER_BYTES
+    };
+    try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(stats));
+    } catch { }
+    window.dispatchEvent(new Event(EVENT));
+}
+
+/** Lifetime blocking totals. Only real, observed blocks are counted. */
+export function usePrivacyStats() {
+    const [value, setValue] = useState(stats);
+    useEffect(() => {
+        const update = () => setValue(stats);
+        window.addEventListener(EVENT, update);
+        return () => window.removeEventListener(EVENT, update);
+    }, []);
+    return value;
+}
+
+export function formatBytes(bytes: number, decimals = 1) {
     if (!+bytes) return '0 B';
     const k = 1024;
-    const dm = decimals < 0 ? 0 : decimals;
     const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
+    const i = Math.min(sizes.length - 1, Math.floor(Math.log(bytes) / Math.log(k)));
+    return `${parseFloat((bytes / Math.pow(k, i)).toFixed(Math.max(0, decimals)))} ${sizes[i]}`;
 }

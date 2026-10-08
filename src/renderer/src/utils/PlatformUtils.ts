@@ -70,3 +70,13 @@ export const openExternalUrl = async (url: string) => {
         window.electron.shell.openExternal(url);
     }
 };
+
+export const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
+
+/** Formats a shortcut for display, e.g. shortcut('Shift', 'T') → "⇧⌘T" on macOS, "Ctrl+Shift+T" elsewhere. */
+export function shortcut(...keys: string[]) {
+    if (!isMac) return ['Ctrl', ...keys].join('+');
+    const symbols: Record<string, string> = { Ctrl: '⌃', Alt: '⌥', Shift: '⇧' };
+    const modifiers = keys.filter(k => symbols[k]).map(k => symbols[k]).join('');
+    return `${modifiers}⌘${keys.filter(k => !symbols[k]).join('')}`;
+}
