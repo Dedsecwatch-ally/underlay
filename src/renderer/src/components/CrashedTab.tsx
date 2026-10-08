@@ -1,41 +1,25 @@
 import React from 'react';
-import { RefreshCw, X, AlertTriangle } from 'lucide-react';
+import { RotateCw } from 'lucide-react';
 
 interface CrashedTabProps {
     onReload: () => void;
     onClose: () => void;
 }
 
-export const CrashedTab: React.FC<CrashedTabProps> = ({ onReload, onClose }) => {
-    return (
-        <div className="w-full h-full flex flex-col items-center justify-center bg-[#0f0f11] text-white p-8">
-            <div className="bg-[#1a1a1d] p-8 rounded-2xl border border-white/5 flex flex-col items-center max-w-md text-center shadow-2xl">
-                <div className="bg-red-500/10 p-4 rounded-full mb-6">
-                    <AlertTriangle size={48} className="text-red-500" />
-                </div>
-
-                <h1 className="text-2xl font-bold mb-2">Aw, Snap!</h1>
-                <p className="text-gray-400 mb-8">
-                    Something went wrong while displaying this webpage. To continue, reload or go to another page.
-                </p>
-
-                <div className="flex gap-4 w-full">
-                    <button
-                        onClick={onClose}
-                        className="flex-1 flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-white/5 hover:bg-white/10 text-white transition-colors font-medium border border-white/5"
-                    >
-                        <X size={18} />
-                        Close Tab
-                    </button>
-                    <button
-                        onClick={onReload}
-                        className="flex-1 flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white transition-colors font-medium shadow-lg shadow-blue-500/20"
-                    >
-                        <RefreshCw size={18} />
-                        Reload
-                    </button>
-                </div>
+export const CrashedTab: React.FC<CrashedTabProps> = ({ onReload, onClose }) => (
+    <div className="w-full h-full flex items-center justify-center bg-underlay-bg text-underlay-text p-8">
+        <div className="flex flex-col items-center max-w-sm text-center animate-fade-in">
+            <div className="w-14 h-14 rounded-2xl bg-underlay-text/5 flex items-center justify-center mb-5">
+                <RotateCw size={24} strokeWidth={1.75} className="text-underlay-text/60" />
+            </div>
+            <h1 className="text-[17px] font-semibold tracking-tight mb-1.5">This page stopped working</h1>
+            <p className="text-[13px] leading-relaxed text-underlay-text/55 mb-6">
+                A problem occurred with this webpage, so it was closed to protect the rest of the browser.
+            </p>
+            <div className="flex gap-2">
+                <button onClick={onClose} className="btn-secondary">Close Tab</button>
+                <button onClick={onReload} className="btn-primary">Reload Page</button>
             </div>
         </div>
-    );
-};
+    </div>
+);

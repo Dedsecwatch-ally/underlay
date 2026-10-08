@@ -1,277 +1,264 @@
-import React, { useState, useEffect, KeyboardEvent } from 'react';
-import { useBrowser } from '../context/BrowserContext';
-import { ArrowLeft, ArrowRight, RotateCcw, ShieldCheck, X, Star, VenetianMask, BookOpen } from 'lucide-react';
-
-import { motion, AnimatePresence } from 'framer-motion';
-import { CertViewer } from './CertViewer';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { AnimatePresence } from 'framer-motion';
+import { Search, Star, BookOpen, Lock, VenetianMask, Globe, Clock, ShieldCheck, TriangleAlert } from 'lucide-react';
+import { dispatch, useBrowserState, getBrowserState } from '../context/BrowserContext';
+import { NEW_TAB_URL } from '../store/browserStore';
 import { PrivacyShield } from './PrivacyShield';
+import { usePrivacyPrefs } from '../hooks/usePrivacyPrefs';
+import { displayUrl, looksLikeUrl, resolveInput, SEARCH_ENGINES, searchUrl, useSuggestions } from '../utils/omnibox';
+
+interface Suggestion {
+    kind: 'navigate' | 'search' | 'history' | 'bookmark';
+    label: string;
+    detail?: string;
+    url: string;
+}
 
 export function AddressBar() {
-    const { state, dispatch } = useBrowser();
-    const activeTab = state.tabs.find(t => t.id === state.activeTabId);
-    const [inputUrl, setInputUrl] = useState('');
-    const [securityState, setSecurityState] = useState<any>(null);
-    const [showCertViewer, setShowCertViewer] = useState(false);
-    const [showShield, setShowShield] = useState(false);
-    const isLoading = activeTab?.status === 'loading';
-
-    const isBookmarked = state.bookmarks.some(b => b.url === activeTab?.url);
-
-    const toggleBookmark = () => {
-        if (activeTab) {
-            dispatch({ type: 'TOGGLE_BOOKMARK', payload: { url: activeTab.url, title: activeTab.title } });
-        }
-    };
-
-    // Sync input with active tab URL
-    useEffect(() => {
-        if (activeTab) {
-            // Hide internal newtab url for cleaner aesthetics
-            setInputUrl(activeTab.url === 'underlay://newtab' ? '' : activeTab.url);
-        }
-    }, [activeTab?.id, activeTab?.url]);
-
-    // Listen for Security State
-    useEffect(() => {
-        if (!activeTab) return;
-        setSecurityState(null); // Reset on tab switch/load potentially (simple check)
-
-        // In a real app we'd map security state to tab ID. 
-        // For now, assuming single tab dominance or simple event flow
-        if (window.electron.security?.onSecurityStateChange) {
-            const cleanup = window.electron.security.onSecurityStateChange((data) => {
-                setSecurityState(data);
-            });
-            return cleanup;
-        }
-    }, [activeTab?.id]);
-
-    // Handle Focus Command
-    const inputRef = React.useRef<HTMLInputElement>(null);
-    useEffect(() => {
-        if (state.activeCommand?.type === 'focusAddressBar') {
-            inputRef.current?.focus();
-            inputRef.current?.select();
-        }
-    }, [state.activeCommand]);
-
-    // Search Suggestions Logic
-    const [suggestions, setSuggestions] = useState<string[]>([]);
-    const [showSuggestions, setShowSuggestions] = useState(false);
-    const [selectedIndex, setSelectedIndex] = useState(-1);
-
-    useEffect(() => {
-        const fetchSuggestions = async () => {
-            const query = inputUrl.trim();
-            if (!query || query.startsWith('http') || query.includes('.') || query.length < 2) {
-                setSuggestions([]);
-                return;
-            }
-
-            try {
-                // Use Main Process proxy to avoid CORS
-                const data = await window.electron.search.suggest(query);
-                // data format: ["query", ["sug1", "sug2", ...], ...]
-                if (Array.isArray(data) && Array.isArray(data[1])) {
-                    setSuggestions(data[1].slice(0, 5));
-                }
-            } catch (e) {
-                // Silent fail
-            }
+    const { tab, isBookmarked, searchEngine, command } = useBrowserState(s => {
+        const active = s.tabs.find(t => t.id === s.activeTabId);
+        return {
+            tab: active,
+            isBookmarked: !!active && s.bookmarks.some(b => b.url === active.url),
+            searchEngine: s.settings.searchEngine,
+            command: s.activeCommand?.type === 'focusAddressBar' ? s.activeCommand.id : undefined
         };
+    });
+    const [prefs, setPrefs] = usePrivacyPrefs();
 
-        const timeoutId = setTimeout(() => {
-            if (activeTab && inputUrl !== activeTab.url) {
-                fetchSuggestions();
+    const inputRef = useRef<HTMLInputElement>(null);
+    const [focused, setFocused] = useState(false);
+    const [text, setText] = useState('');
+    const [edited, setEdited] = useState(false);
+    const [selected, setSelected] = useState(0);
+    const [showSiteInfo, setShowSiteInfo] = useState(false);
+
+    const url = tab?.url ?? '';
+    const isNewTab = url === NEW_TAB_URL;
+    const isWeb = /^https?:/.test(url);
+    const isLoading = tab?.status === 'loading';
+    const blocked = tab?.blockedStats
+        ? tab.blockedStats.ads + tab.blockedStats.trackers + tab.blockedStats.fingerprinters + tab.blockedStats.cryptominers + tab.blockedStats.social
+        : 0;
+
+    // Show the page URL whenever the user isn't editing.
+    useEffect(() => {
+        if (!edited) setText(isNewTab ? '' : url);
+    }, [url, isNewTab, edited, tab?.id]);
+
+    useEffect(() => {
+        setEdited(false);
+        setShowSiteInfo(false);
+    }, [tab?.id]);
+
+    // ⌘L / "Open Location…"
+    useEffect(() => {
+        if (command === undefined) return;
+        inputRef.current?.focus();
+        inputRef.current?.select();
+        dispatch({ type: 'CLEAR_COMMAND' });
+    }, [command]);
+
+    const query = edited ? text : '';
+    const remote = useSuggestions(query, searchEngine, focused && !tab?.incognito && prefs.searchSuggestions);
+
+    const suggestions = useMemo<Suggestion[]>(() => {
+        const q = query.trim();
+        if (!q) return [];
+        const list: Suggestion[] = [];
+        const engine = SEARCH_ENGINES[searchEngine]?.name ?? 'Google';
+
+        if (looksLikeUrl(q)) list.push({ kind: 'navigate', label: q, url: resolveInput(q, searchEngine)! });
+        list.push({ kind: 'search', label: q, detail: `${engine} Search`, url: searchUrl(q, searchEngine) });
+
+        // Matching bookmarks and history, best first, read on demand.
+        const needle = q.toLowerCase();
+        const { bookmarks, history } = getBrowserState();
+        const seen = new Set<string>();
+        const local: Suggestion[] = [];
+        for (const b of bookmarks) {
+            if (local.length >= 2) break;
+            if ((b.title.toLowerCase().includes(needle) || b.url.toLowerCase().includes(needle)) && !seen.has(b.url)) {
+                seen.add(b.url);
+                local.push({ kind: 'bookmark', label: b.title || displayUrl(b.url), detail: displayUrl(b.url), url: b.url });
             }
-        }, 200); // Debounce 200ms
-
-        return () => clearTimeout(timeoutId);
-    }, [inputUrl, activeTab]);
-
-    const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-        if (e.key === 'ArrowDown') {
-            e.preventDefault();
-            setSelectedIndex(prev => (prev < suggestions.length - 1 ? prev + 1 : prev));
-        } else if (e.key === 'ArrowUp') {
-            e.preventDefault();
-            setSelectedIndex(prev => (prev > -1 ? prev - 1 : prev));
-        } else if (e.key === 'Enter' && activeTab) {
-            e.preventDefault();
-            let url = (selectedIndex >= 0 ? suggestions[selectedIndex] : inputUrl).trim();
-            if (!url) return;
-
-            // Smart Parsing Logic
-            const hasProtocol = /^https?:\/\//i.test(url);
-            const hasDomainDot = url.includes('.') && !url.includes(' ');
-            const isLocalhost = url.startsWith('localhost');
-
-            if (isLocalhost) {
-                if (!hasProtocol) url = 'http://' + url;
-            } else if (hasProtocol) {
-                // valid url as is
-            } else if (hasDomainDot) {
-                // assume https
-                url = 'https://' + url;
-            } else {
-                // Search query
-                url = 'https://google.com/search?q=' + encodeURIComponent(url);
+        }
+        for (const h of history) {
+            if (local.length >= 4) break;
+            if ((h.title.toLowerCase().includes(needle) || h.url.toLowerCase().includes(needle)) && !seen.has(h.url)) {
+                seen.add(h.url);
+                local.push({ kind: 'history', label: h.title || displayUrl(h.url), detail: displayUrl(h.url), url: h.url });
             }
+        }
 
-            dispatch({ type: 'LOAD_URL', payload: { id: activeTab.id, url } });
-            setShowSuggestions(false);
-            setSelectedIndex(-1);
-            if (inputRef.current) inputRef.current.blur();
+        for (const s of remote) {
+            if (s.toLowerCase() !== q.toLowerCase()) list.push({ kind: 'search', label: s, url: searchUrl(s, searchEngine) });
+            if (list.length >= 6) break;
+        }
+        return [...list.slice(0, 2), ...local, ...list.slice(2)].slice(0, 9);
+    }, [query, remote, searchEngine]);
+
+    useEffect(() => setSelected(0), [query]);
+
+    const navigate = (target: string | null) => {
+        if (!tab || !target) return;
+        dispatch({ type: 'LOAD_URL', payload: { id: tab.id, url: target } });
+        setEdited(false);
+        inputRef.current?.blur();
+    };
+
+    const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+        if (e.key === 'ArrowDown' && suggestions.length) {
+            e.preventDefault();
+            setSelected(i => (i + 1) % suggestions.length);
+        } else if (e.key === 'ArrowUp' && suggestions.length) {
+            e.preventDefault();
+            setSelected(i => (i - 1 + suggestions.length) % suggestions.length);
+        } else if (e.key === 'Enter') {
+            e.preventDefault();
+            navigate(suggestions[selected]?.url ?? resolveInput(text, searchEngine));
         } else if (e.key === 'Escape') {
-            setShowSuggestions(false);
+            e.preventDefault();
+            if (edited) {
+                setEdited(false);
+                setText(isNewTab ? '' : url);
+                requestAnimationFrame(() => inputRef.current?.select());
+            } else {
+                inputRef.current?.blur();
+            }
         }
     };
 
-    // Derived Security UI State
-    let LockIcon = ShieldCheck;
-    let lockColor = 'text-white/30';
-    let tlsVersion = '';
+    const showDropdown = focused && edited && suggestions.length > 0;
+    const value = focused || edited ? text : displayUrl(url);
 
-    if (securityState && securityState.visibleSecurityState) {
-        const { securityState: secState, certificateSecurityState } = securityState.visibleSecurityState;
-        if (secState === 'secure') {
-            lockColor = 'text-green-500';
-            const protocol = certificateSecurityState?.protocol;
-            if (protocol) {
-                if (protocol.includes('1.2')) tlsVersion = '1.2';
-                else if (protocol.includes('1.3')) tlsVersion = '1.3';
-                else tlsVersion = 'TLS';
-            }
-        } else if (secState === 'insecure') {
-            LockIcon = RotateCcw; // Using generic warning visual
-            lockColor = 'text-red-500';
-        }
-    } else if (activeTab?.url.startsWith('https')) {
-        // Fallback if no CDP data yet
-        lockColor = 'text-green-500';
-    } else if (activeTab?.url.startsWith('http')) {
-        lockColor = 'text-red-400';
-    }
+    const siteIcon = tab?.incognito
+        ? <VenetianMask size={14} />
+        : !isWeb
+            ? <Search size={14} />
+            : url.startsWith('https:')
+                ? <Lock size={12} strokeWidth={2.25} />
+                : <TriangleAlert size={13} className="text-[#ff9f0a]" />;
 
     return (
-        <div className="flex items-center z-10 relative overflow-visible w-full">
-
-            {/* Privacy Shield Popover */}
-            <PrivacyShield
-                stats={activeTab?.blockedStats}
-                isVisible={showShield}
-                onClose={() => setShowShield(false)}
-                onToggleProtection={(enabled) => console.log('Toggle Protection:', enabled)} // Placeholder for now
-                protectionEnabled={true}
-            />
-
-            {/* Navigation Buttons Removed - Controlled by Toolbar */}
-
-            <div className={`flex-1 w-full bg-underlay-bg rounded-md h-8 flex items-center px-2 gap-2 border border-underlay-border focus-within:border-underlay-accent/50 transition-colors shadow-inner relative ${activeTab?.incognito ? 'bg-zinc-900 border-zinc-700 shadow-[0_0_15px_rgba(0,0,0,0.5)]' : ''}`}>
-                <div className="flex items-center gap-2 cursor-pointer hover:bg-underlay-text/5 p-1 rounded non-draggable" onClick={() => setShowCertViewer(!showCertViewer)}>
-                    {activeTab?.incognito ? (
-                        <VenetianMask size={14} className="text-zinc-400" />
-                    ) : (
-                        <div className="flex items-center gap-1" onClick={(e) => { e.stopPropagation(); setShowShield(!showShield); }}>
-                            <ShieldCheck size={14} className={activeTab?.blockedStats && (activeTab.blockedStats.trackers + activeTab.blockedStats.ads) > 0 ? "text-indigo-400" : "text-underlay-text/40"} />
-                            {activeTab?.blockedStats && (activeTab.blockedStats.trackers + activeTab.blockedStats.ads) > 0 && (
-                                <span className="text-[10px] font-bold text-indigo-400">{activeTab.blockedStats.trackers + activeTab.blockedStats.ads}</span>
-                            )}
-                        </div>
+        <div className="relative flex-1 min-w-0 mx-1.5 app-region-no-drag">
+            <div
+                className={`group relative h-[30px] flex items-center gap-1 rounded-[9px] pl-1 pr-1 transition-[background-color,box-shadow] duration-150 ${focused
+                    ? 'bg-underlay-bg shadow-[0_0_0_1px_rgb(var(--underlay-accent)/0.8),0_0_0_4px_var(--underlay-focus)]'
+                    : 'bg-underlay-text/[0.07] hover:bg-underlay-text/[0.1]'
+                    }`}
+            >
+                <button
+                    onClick={() => isWeb && setShowSiteInfo(v => !v)}
+                    className={`h-6 min-w-6 px-1 flex items-center justify-center gap-1 rounded-md text-underlay-text/55 ${isWeb ? 'hover:bg-underlay-text/10 hover:text-underlay-text' : ''}`}
+                    aria-label="Site information"
+                    title={isWeb ? 'Site information' : undefined}
+                    tabIndex={isWeb ? 0 : -1}
+                >
+                    {siteIcon}
+                    {isWeb && !tab?.incognito && prefs.shields && blocked > 0 && (
+                        <span className="flex items-center gap-0.5 text-[11px] font-semibold text-[#30d158] tabular-nums">
+                            <ShieldCheck size={12} strokeWidth={2.25} />
+                            {blocked}
+                        </span>
                     )}
-                    {tlsVersion && !activeTab?.incognito && (
-                        <span className="text-[9px] bg-green-500/20 text-green-400 px-1 rounded font-bold">{tlsVersion}</span>
-                    )}
-                    {activeTab?.url.startsWith('http:') && !activeTab?.incognito && (
-                        <span className="text-[9px] font-bold uppercase tracking-wider text-red-400">Not Secure</span>
-                    )}
-                </div>
-
-                {showCertViewer && (
-                    <CertViewer securityState={securityState} onClose={() => setShowCertViewer(false)} />
-                )}
-
-                {activeTab?.pid && (
-                    <span className="text-[9px] bg-underlay-text/10 px-1 rounded text-underlay-text/40 font-mono" title="Renderer Process ID">
-                        PID:{activeTab.pid}
-                    </span>
-                )}
+                </button>
 
                 <input
                     ref={inputRef}
-                    className="bg-transparent border-none outline-none flex-1 w-full text-xs text-underlay-text placeholder-underlay-text/20 font-mono non-draggable select-text"
-                    value={inputUrl}
+                    value={value}
                     onChange={(e) => {
-                        setInputUrl(e.target.value);
-                        setShowSuggestions(true);
+                        setText(e.target.value);
+                        setEdited(true);
                     }}
-                    onFocus={() => setShowSuggestions(true)}
-                    onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
-                    onKeyDown={handleKeyDown}
+                    onFocus={() => {
+                        setFocused(true);
+                        setShowSiteInfo(false);
+                        requestAnimationFrame(() => inputRef.current?.select());
+                    }}
+                    onBlur={() => {
+                        setFocused(false);
+                        setEdited(false);
+                    }}
+                    onKeyDown={onKeyDown}
+                    placeholder={tab?.incognito ? 'Search privately or enter address' : `Search ${SEARCH_ENGINES[searchEngine]?.name ?? 'Google'} or enter address`}
                     spellCheck={false}
+                    autoCapitalize="off"
+                    autoCorrect="off"
+                    aria-label="Address and search bar"
+                    aria-expanded={showDropdown}
+                    aria-autocomplete="list"
+                    className={`flex-1 min-w-0 h-full bg-transparent outline-none text-[13px] placeholder:text-underlay-text/40 ${focused ? 'text-left' : 'text-center'} text-underlay-text`}
                 />
 
-                <button
-                    onClick={toggleBookmark}
-                    className={`p-1 rounded-md transition-colors non-draggable ${isBookmarked ? 'text-yellow-400 hover:bg-yellow-400/10' : 'text-underlay-text/20 hover:text-underlay-text/60 hover:bg-underlay-text/5'}`}
-                >
-                    <Star size={14} fill={isBookmarked ? "currentColor" : "none"} />
-                </button>
+                {isWeb && !focused && (
+                    <div className="flex items-center opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity duration-150 data-[on=true]:opacity-100" data-on={isBookmarked || tab?.readerActive ? 'true' : undefined}>
+                        <button
+                            onClick={() => tab && dispatch({ type: 'UPDATE_TAB', payload: { id: tab.id, data: { readerActive: !tab.readerActive } } })}
+                            className={`h-6 w-6 flex items-center justify-center rounded-md hover:bg-underlay-text/10 ${tab?.readerActive ? 'text-underlay-accent' : 'text-underlay-text/50 hover:text-underlay-text'}`}
+                            title="Reader"
+                            aria-pressed={!!tab?.readerActive}
+                        >
+                            <BookOpen size={14} />
+                        </button>
+                        <button
+                            onClick={() => tab && dispatch({ type: 'TOGGLE_BOOKMARK', payload: { url: tab.url, title: tab.title } })}
+                            className={`h-6 w-6 flex items-center justify-center rounded-md hover:bg-underlay-text/10 ${isBookmarked ? 'text-[#ffd60a]' : 'text-underlay-text/50 hover:text-underlay-text'}`}
+                            title={isBookmarked ? 'Remove Bookmark' : 'Add Bookmark'}
+                            aria-pressed={isBookmarked}
+                        >
+                            <Star size={14} fill={isBookmarked ? 'currentColor' : 'none'} />
+                        </button>
+                    </div>
+                )}
 
-                <button
-                    onClick={() => {
-                        if (activeTab) {
-                            dispatch({ type: 'UPDATE_TAB', payload: { id: activeTab.id, data: { readerActive: !activeTab.readerActive } } });
-                        }
-                    }}
-                    className={`p-1 rounded-md transition-colors non-draggable ${activeTab?.readerActive ? 'text-blue-400 bg-blue-400/10' : 'text-underlay-text/20 hover:text-underlay-text/60 hover:bg-underlay-text/5'}`}
-                    title="Toggle Reader View"
-                >
-                    <BookOpen size={14} />
-                </button>
-
-                {/* Suggestions Dropdown */}
-                {showSuggestions && suggestions.length > 0 && (
-                    <div className="absolute top-full left-0 right-0 mt-1 bg-underlay-surface border border-underlay-border rounded-md shadow-2xl py-1 z-50 overflow-hidden non-draggable">
-                        {suggestions.map((sug, i) => (
-                            <div
-                                key={i}
-                                className={`px-3 py-2 text-xs cursor-pointer flex items-center gap-2 ${i === selectedIndex ? 'bg-underlay-accent/20 text-underlay-accent' : 'hover:bg-white/5 text-underlay-text'}`}
-                                onMouseDown={(e) => {
-                                    e.preventDefault(); // Prevent focus loss
-                                    dispatch({ type: 'LOAD_URL', payload: { id: activeTab!.id, url: 'https://google.com/search?q=' + encodeURIComponent(sug) } });
-                                    setShowSuggestions(false);
-                                }}
-                            >
-                                <span className="opacity-50">Is this what you're looking for?</span>
-                                <span className="font-medium">{sug}</span>
-                            </div>
-                        ))}
+                {/* Page load progress, hugging the bottom edge */}
+                {isLoading && !focused && (
+                    <div className="absolute left-2 right-2 bottom-0 h-[2px] overflow-hidden rounded-full">
+                        <div className="h-full w-2/5 rounded-full bg-underlay-accent animate-progress" />
                     </div>
                 )}
             </div>
 
-            {/* Loading Indicator */}
+            {showDropdown && (
+                <div className="popover absolute top-full left-0 right-0 mt-1.5 py-1.5 z-50 overflow-hidden" role="listbox">
+                    {suggestions.map((s, i) => (
+                        <div
+                            key={`${s.kind}:${s.url}`}
+                            role="option"
+                            aria-selected={i === selected}
+                            onMouseDown={(e) => {
+                                e.preventDefault();
+                                navigate(s.url);
+                            }}
+                            onMouseMove={() => setSelected(i)}
+                            className={`mx-1.5 px-2.5 h-8 flex items-center gap-2.5 rounded-md text-[13px] ${i === selected ? 'bg-underlay-accent text-white' : 'text-underlay-text'}`}
+                        >
+                            <span className={i === selected ? 'text-white/90' : 'text-underlay-text/45'}>
+                                {s.kind === 'search' ? <Search size={14} /> : s.kind === 'history' ? <Clock size={14} /> : s.kind === 'bookmark' ? <Star size={14} /> : <Globe size={14} />}
+                            </span>
+                            <span className="truncate">{s.label}</span>
+                            {s.detail && (
+                                <span className={`truncate text-[12px] ${i === selected ? 'text-white/70' : 'text-underlay-text/40'}`}>— {s.detail}</span>
+                            )}
+                        </div>
+                    ))}
+                </div>
+            )}
+
             <AnimatePresence>
-                {isLoading && (
-                    <motion.div
-                        initial={{ scaleX: 0, opacity: 0 }}
-                        animate={{ scaleX: 1, opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        transition={{ duration: 0.5, ease: "easeInOut" }}
-                        className="absolute bottom-0 left-0 h-[2px] bg-gradient-to-r from-underlay-accent to-purple-500 w-full origin-left"
-                    >
-                        <motion.div
-                            animate={{ x: ["-100%", "100%"] }}
-                            transition={{ repeat: Infinity, duration: 1.5, ease: "linear" }}
-                            className="absolute inset-0 bg-white/50 blur-[2px]"
-                        />
-                    </motion.div>
+                {showSiteInfo && tab && (
+                    <PrivacyShield
+                        url={tab.url}
+                        incognito={!!tab.incognito}
+                        stats={tab.blockedStats}
+                        shieldsEnabled={prefs.shields}
+                        onToggleShields={(shields) => setPrefs({ shields })}
+                        onClose={() => setShowSiteInfo(false)}
+                    />
                 )}
             </AnimatePresence>
         </div>
     );
 }
-
-// NavButton removed
 

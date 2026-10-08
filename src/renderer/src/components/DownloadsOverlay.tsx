@@ -11,7 +11,7 @@ const overlayVariants = {
 };
 
 export function DownloadsOverlay({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
-    const { state, dispatch } = useBrowser();
+    const { state, dispatch } = useBrowser(isOpen);
 
     return (
         <AnimatePresence>

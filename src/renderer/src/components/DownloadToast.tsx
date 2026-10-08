@@ -4,16 +4,18 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Download, CheckCircle2, File } from 'lucide-react';
 import { DownloadItem } from '../context/BrowserContext';
 
-export function DownloadToast({ latestDownload }: { latestDownload: DownloadItem | null }) {
+export function DownloadToast({ latestDownload }: { latestDownload: DownloadItem | null | undefined }) {
     const [visible, setVisible] = useState(false);
 
+    // Show when a download starts and again when it finishes, not on every
+    // progress update.
+    const key = latestDownload ? `${latestDownload.id}:${latestDownload.state === 'completed' ? 'done' : 'start'}` : null;
     useEffect(() => {
-        if (latestDownload) {
-            setVisible(true);
-            const timer = setTimeout(() => setVisible(false), 4000); // Hide after 4s
-            return () => clearTimeout(timer);
-        }
-    }, [latestDownload]);
+        if (!key) return;
+        setVisible(true);
+        const timer = setTimeout(() => setVisible(false), 4000);
+        return () => clearTimeout(timer);
+    }, [key]);
 
     if (!latestDownload) return null;
 

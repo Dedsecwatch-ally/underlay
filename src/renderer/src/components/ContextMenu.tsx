@@ -1,149 +1,158 @@
-import React, { useEffect, useState, useRef } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Copy, ArrowLeft, ArrowRight, RotateCw, ExternalLink, Image, Search, Camera } from 'lucide-react';
-import { getPlatformElectron } from '../utils/PlatformUtils';
-import { useBrowser } from '../context/BrowserContext';
-
-// NOTE: In a real Electron webview scenario, getting the context menu event *from* the webview 
-// usually requires an IPC message from the preload script of that webview, containing coordinate/selection data.
-// 
-// For this implementation, we'll assume the main process sends a 'context-menu' IPC event with 
-// the params needed (x, y, selectionText, mediaType, srcUrl).
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { motion } from 'framer-motion';
+import { dispatch, getBrowserState } from '../context/BrowserContext';
+import { webviews } from '../utils/webviews';
+import { searchUrl, SEARCH_ENGINES } from '../utils/omnibox';
+import { shortcut } from '../utils/PlatformUtils';
 
 interface ContextMenuData {
     x: number;
     y: number;
     selectionText?: string;
-    mediaType?: string; // 'image', 'video', 'canvas', 'none'
+    mediaType?: string;
     srcUrl?: string;
     linkUrl?: string;
+    isEditable?: boolean;
 }
 
+type Entry = { label: string; hint?: string; disabled?: boolean; run: () => void } | 'separator';
+
+/** Page context menu, styled like a native macOS menu. */
 export const ContextMenu: React.FC = () => {
-    const { dispatch } = useBrowser();
-    const [menuData, setMenuData] = useState<ContextMenuData | null>(null);
-    const menuRef = useRef<HTMLDivElement>(null);
+    const [menu, setMenu] = useState<(ContextMenuData & { left: number; top: number }) | null>(null);
+    const ref = useRef<HTMLDivElement>(null);
+    const [position, setPosition] = useState({ left: 0, top: 0 });
 
     useEffect(() => {
-        const electron = getPlatformElectron();
-
-        const cleanup = electron?.ui?.onContextMenu?.((data: any) => {
-            let { x, y } = data;
-            if (x + 200 > window.innerWidth) x = window.innerWidth - 210;
-            if (y + 300 > window.innerHeight) y = window.innerHeight - 310;
-
-            setMenuData({ ...data, x, y });
+        const cleanup = window.electron?.ui?.onContextMenu((data: ContextMenuData) => {
+            // Coordinates arrive relative to the page; translate to the window.
+            const rect = webviews.get(getBrowserState().activeTabId)?.getBoundingClientRect();
+            setMenu({ ...data, left: data.x + (rect?.left ?? 0), top: data.y + (rect?.top ?? 0) });
         });
-
-        const handleClick = (e: MouseEvent) => {
-            if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-                setMenuData(null);
-            }
+        const close = () => setMenu(null);
+        const onPointerDown = (e: PointerEvent) => {
+            if (!ref.current?.contains(e.target as Node)) close();
         };
-
-        window.addEventListener('click', handleClick);
-        window.addEventListener('blur', () => setMenuData(null));
-
+        const onKey = (e: KeyboardEvent) => e.key === 'Escape' && close();
+        window.addEventListener('pointerdown', onPointerDown);
+        window.addEventListener('blur', close); // focus moved into the page
+        window.addEventListener('resize', close);
+        window.addEventListener('keydown', onKey);
         return () => {
-            window.removeEventListener('click', handleClick);
             cleanup?.();
+            window.removeEventListener('pointerdown', onPointerDown);
+            window.removeEventListener('blur', close);
+            window.removeEventListener('resize', close);
+            window.removeEventListener('keydown', onKey);
         };
     }, []);
 
-    if (!menuData) return null;
+    // Keep the menu on screen, flipping like a native menu would.
+    useLayoutEffect(() => {
+        if (!menu || !ref.current) return;
+        const { width, height } = ref.current.getBoundingClientRect();
+        setPosition({
+            left: menu.left + width > window.innerWidth - 8 ? Math.max(8, menu.left - width) : menu.left,
+            top: menu.top + height > window.innerHeight - 8 ? Math.max(8, menu.top - height) : menu.top
+        });
+    }, [menu]);
 
-    const { x, y, selectionText, mediaType, srcUrl, linkUrl } = menuData;
-    const hasSelection = !!selectionText;
-    const isImage = mediaType === 'image' && srcUrl;
-    const isLink = !!linkUrl;
+    if (!menu) return null;
+
+    const webview = webviews.get(getBrowserState().activeTabId);
+    const tab = getBrowserState().tabs.find(t => t.id === getBrowserState().activeTabId);
+    const engine = getBrowserState().settings.searchEngine;
+    const close = () => setMenu(null);
+    const act = (fn: () => void) => () => {
+        close();
+        try { fn(); } catch (e) { console.warn('[ContextMenu]', e); }
+    };
+    const copyText = (text: string) => navigator.clipboard.writeText(text).catch(() => { });
+    const openTab = (url: string, incognito = !!tab?.incognito) => dispatch({ type: 'NEW_TAB', payload: { url, incognito, background: true } });
+
+    const entries: Entry[] = [];
+    const selection = menu.selectionText?.trim();
+
+    if (menu.linkUrl) {
+        entries.push(
+            { label: 'Open Link in New Tab', run: act(() => openTab(menu.linkUrl!)) },
+            { label: 'Open Link in Private Tab', run: act(() => openTab(menu.linkUrl!, true)) },
+            { label: 'Copy Link', run: act(() => copyText(menu.linkUrl!)) },
+            'separator'
+        );
+    }
+    if (menu.mediaType === 'image' && menu.srcUrl) {
+        entries.push(
+            { label: 'Open Image in New Tab', run: act(() => openTab(menu.srcUrl!)) },
+            { label: 'Save Image…', run: act(() => webview?.downloadURL(menu.srcUrl!)) },
+            { label: 'Copy Image Address', run: act(() => copyText(menu.srcUrl!)) },
+            'separator'
+        );
+    }
+    if (menu.isEditable) {
+        entries.push(
+            { label: 'Cut', hint: shortcut('X'), run: act(() => webview?.cut()) },
+            { label: 'Copy', hint: shortcut('C'), run: act(() => webview?.copy()) },
+            { label: 'Paste', hint: shortcut('V'), run: act(() => webview?.paste()) },
+            'separator'
+        );
+    } else if (selection) {
+        const preview = selection.length > 24 ? `${selection.slice(0, 24)}…` : selection;
+        entries.push(
+            { label: 'Copy', hint: shortcut('C'), run: act(() => webview?.copy()) },
+            { label: `Search ${SEARCH_ENGINES[engine]?.name ?? 'Google'} for “${preview}”`, run: act(() => openTab(searchUrl(selection, engine))) },
+            'separator'
+        );
+    }
+    if (!menu.linkUrl && !selection && !menu.isEditable && menu.mediaType !== 'image') {
+        entries.push(
+            { label: 'Back', hint: shortcut('['), disabled: !webview?.canGoBack(), run: act(() => webview?.goBack()) },
+            { label: 'Forward', hint: shortcut(']'), disabled: !webview?.canGoForward(), run: act(() => webview?.goForward()) },
+            { label: 'Reload', hint: shortcut('R'), run: act(() => webview?.reload()) },
+            'separator',
+            {
+                label: 'Take Screenshot', run: act(async () => {
+                    const dataUrl = await window.underlay.screenshot.captureVisible();
+                    if (!dataUrl) return;
+                    const link = document.createElement('a');
+                    link.href = dataUrl;
+                    link.download = `Underlay Screenshot ${new Date().toISOString().slice(0, 19).replace(/[T:]/g, '.')}.png`;
+                    link.click();
+                })
+            },
+            'separator'
+        );
+    }
+    entries.push({ label: 'Inspect Element', run: act(() => webview?.inspectElement(menu.x, menu.y)) });
+
+    // Drop leading/trailing/duplicate separators.
+    const cleaned = entries.filter((e, i, all) => e !== 'separator' || (i > 0 && i < all.length - 1 && all[i - 1] !== 'separator'));
 
     return (
-        <AnimatePresence>
-            <motion.div
-                ref={menuRef}
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.95 }}
-                transition={{ duration: 0.1 }}
-                className="fixed z-[9999] w-48 bg-[#1e1e21] border border-white/10 rounded-lg shadow-2xl py-1.5 flex flex-col text-sm backdrop-blur-xl"
-                style={{ top: y, left: x }}
-                onContextMenu={(e) => e.preventDefault()} // Prevent native menu on our menu
-            >
-                {/* Navigation (Always available if not specific element focused? Or maybe separate?) 
-                    Keeping it simple essentially duplicating browser controls 
-                */}
-                <div className="flex items-center justify-between px-2 py-1 mb-1 border-b border-white/5">
-                    <button className="p-1.5 hover:bg-white/10 rounded transition-colors text-white/70 hover:text-white" title="Back">
-                        <ArrowLeft size={16} />
-                    </button>
-                    <button className="p-1.5 hover:bg-white/10 rounded transition-colors text-white/70 hover:text-white" title="Forward">
-                        <ArrowRight size={16} />
-                    </button>
-                    <button className="p-1.5 hover:bg-white/10 rounded transition-colors text-white/70 hover:text-white" title="Reload">
-                        <RotateCw size={16} />
-                    </button>
-                </div>
-
-                {hasSelection && (
-                    <>
-                        <MenuItem icon={<Copy size={14} />} label="Copy" onClick={() => { navigator.clipboard.writeText(selectionText); setMenuData(null); }} />
-                        <MenuItem icon={<Search size={14} />} label="Search Google" onClick={() => { /* Emit search event */ setMenuData(null); }} />
-                        <div className="h-px bg-white/5 my-1" />
-                    </>
-                )}
-
-                {isLink && (
-                    <>
-                        <MenuItem icon={<ExternalLink size={14} />} label="Open Link in New Tab" onClick={() => { /* Emit new tab */ setMenuData(null); }} />
-                        <MenuItem icon={<Copy size={14} />} label="Copy Link Address" onClick={() => { navigator.clipboard.writeText(linkUrl || ''); setMenuData(null); }} />
-                        <div className="h-px bg-white/5 my-1" />
-                    </>
-                )}
-
-                {isImage && (
-                    <>
-                        <MenuItem icon={<Image size={14} />} label="Open Image in New Tab" onClick={() => { /* Emit new tab */ setMenuData(null); }} />
-                        <MenuItem icon={<Copy size={14} />} label="Copy Image Address" onClick={() => { navigator.clipboard.writeText(srcUrl || ''); setMenuData(null); }} />
-                        <div className="h-px bg-white/5 my-1" />
-                    </>
-                )}
-
-                {!hasSelection && !isLink && !isImage && (
-                    <>
-                        <MenuItem label="Back" onClick={() => { dispatch({ type: 'TRIGGER_COMMAND', payload: 'goBack' }); setMenuData(null); }} />
-                        <MenuItem label="Forward" onClick={() => { dispatch({ type: 'TRIGGER_COMMAND', payload: 'goForward' }); setMenuData(null); }} />
-                        <MenuItem label="Reload" onClick={() => { dispatch({ type: 'TRIGGER_COMMAND', payload: 'reload' }); setMenuData(null); }} />
-                        <div className="h-px bg-white/5 my-1" />
-                        <MenuItem icon={<Camera size={14} />} label="Take Screenshot" onClick={async () => {
-                            setMenuData(null); // Close menu first
-                            try {
-                                const dataUrl = await window.underlay.screenshot.captureVisible();
-                                if (dataUrl) {
-                                    // Trigger Download
-                                    const link = document.createElement('a');
-                                    link.href = dataUrl;
-                                    link.download = `screenshot-${Date.now()}.png`;
-                                    link.click();
-                                }
-                            } catch (e) {
-                                console.error("Screenshot failed", e);
-                            }
-                        }} />
-                        <MenuItem label="Inspect Element" onClick={() => { /* Handle inspect */ }} />
-                    </>
-                )}
-
-            </motion.div>
-        </AnimatePresence>
+        <motion.div
+            ref={ref}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.08 }}
+            className="popover fixed z-[9999] min-w-[220px] max-w-[320px] p-[5px] text-[13px] text-underlay-text !rounded-[10px]"
+            style={position}
+            role="menu"
+            onContextMenu={(e) => e.preventDefault()}
+        >
+            {cleaned.map((entry, i) => entry === 'separator' ? (
+                <div key={`sep-${i}`} className="h-px my-[5px] mx-2.5 bg-underlay-text/10" role="separator" />
+            ) : (
+                <button
+                    key={entry.label}
+                    role="menuitem"
+                    disabled={entry.disabled}
+                    onClick={entry.run}
+                    className="w-full h-[24px] px-2.5 flex items-center justify-between gap-6 rounded-[5px] text-left hover:bg-underlay-accent hover:text-white disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-underlay-text"
+                >
+                    <span className="truncate">{entry.label}</span>
+                    {entry.hint && <span className="text-[12px] opacity-50">{entry.hint}</span>}
+                </button>
+            ))}
+        </motion.div>
     );
 };
-
-const MenuItem: React.FC<{ icon?: React.ReactNode, label: string, onClick: () => void }> = ({ icon, label, onClick }) => (
-    <button
-        onClick={onClick}
-        className="flex items-center gap-2 px-3 py-1.5 text-left text-white/80 hover:bg-blue-600 hover:text-white transition-colors w-full"
-    >
-        {icon && <span className="text-current opacity-70">{icon}</span>}
-        <span>{label}</span>
-    </button>
-);

@@ -1,158 +1,207 @@
-import React, { useState } from 'react';
-import { useBrowser } from '../context/BrowserContext';
+import React, { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, User, LogOut, Check, Chrome, Shield } from 'lucide-react';
+import { Check, LogOut, Pencil, ExternalLink, Loader2 } from 'lucide-react';
+import { dispatch, useBrowserState } from '../context/BrowserContext';
+import { Avatar, AVATAR_PRESETS, displayIdentity } from './Avatar';
 
-export function ProfileOverlay({ isOpen, onClose }: { isOpen: boolean, onClose: () => void }) {
-    const { state, dispatch } = useBrowser();
-    const { profile } = state;
-    const [isEditing, setIsEditing] = useState(false);
-    const [tempName, setTempName] = useState(profile.name);
+const GoogleMark = () => (
+    <svg width="16" height="16" viewBox="0 0 48 48" aria-hidden>
+        <path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.8 2.4 30.3 0 24 0 14.6 0 6.6 5.4 2.7 13.3l7.9 6.1C12.5 13.6 17.8 9.5 24 9.5z" />
+        <path fill="#4285F4" d="M46.1 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.4c-.5 2.9-2.2 5.3-4.6 6.9l7.4 5.7c4.3-4 6.9-9.9 6.9-17.1z" />
+        <path fill="#FBBC05" d="M10.6 28.6A14.6 14.6 0 0 1 9.5 24c0-1.6.3-3.2.8-4.6l-7.9-6.1A24 24 0 0 0 0 24c0 3.9.9 7.5 2.6 10.7l8-6.1z" />
+        <path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.4-5.7c-2.1 1.4-4.8 2.3-8.5 2.3-6.2 0-11.5-4.1-13.4-9.9l-8 6.1C6.6 42.6 14.6 48 24 48z" />
+    </svg>
+);
 
-    const handleGoogleSignIn = () => {
-        // In a real Chromium/Electron app, we just navigate to Google Login.
-        // The session cookies are shared, so logging in once logs you in everywhere.
-        dispatch({ type: 'NEW_TAB', payload: { url: 'https://accounts.google.com/signin' } });
+/** Account popover anchored under the profile button, like Safari's. */
+export function ProfileOverlay({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
+    const { profile, account } = useBrowserState(s => ({ profile: s.profile, account: s.account }));
+    const identity = displayIdentity(profile, account);
+    const ref = useRef<HTMLDivElement>(null);
+
+    const [editing, setEditing] = useState(false);
+    const [draft, setDraft] = useState('');
+    const [signingOut, setSigningOut] = useState(false);
+    const [confirmSignOut, setConfirmSignOut] = useState(false);
+
+    useEffect(() => {
+        if (!isOpen) {
+            setEditing(false);
+            setConfirmSignOut(false);
+            return;
+        }
+        window.electron?.account.refresh().catch(() => { });
+        const onPointerDown = (e: PointerEvent) => {
+            const target = e.target as HTMLElement;
+            // The toolbar button toggles the popover itself.
+            if (ref.current?.contains(target) || target.closest?.('[data-panel-toggle="profile"]')) return;
+            onClose();
+        };
+        const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+        const timer = setTimeout(() => window.addEventListener('pointerdown', onPointerDown));
+        window.addEventListener('keydown', onKey);
+        return () => {
+            clearTimeout(timer);
+            window.removeEventListener('pointerdown', onPointerDown);
+            window.removeEventListener('keydown', onKey);
+        };
+    }, [isOpen, onClose]);
+
+    const saveName = () => {
+        dispatch({ type: 'UPDATE_PROFILE', payload: { name: draft.trim().slice(0, 40) } });
+        setEditing(false);
+    };
+
+    const signIn = async () => {
+        const url = await window.electron.account.getSignInUrl();
+        dispatch({ type: 'NEW_TAB', payload: { url } });
         onClose();
     };
 
-    const handleLogout = () => {
-        dispatch({
-            type: 'UPDATE_PROFILE',
-            payload: {
-                name: 'Guest',
-                email: '',
-                avatar: undefined,
-                isAuthenticated: false
-            }
-        });
-        // Optional: Clear storage/cookies for real logout
-    };
-
-    const saveName = () => {
-        dispatch({ type: 'UPDATE_PROFILE', payload: { name: tempName } });
-        setIsEditing(false);
+    const signOut = async () => {
+        setSigningOut(true);
+        try {
+            await window.electron.account.signOut();
+            // If the avatar came from Google, drop it along with the account.
+            if (profile.avatar === account?.avatar) dispatch({ type: 'UPDATE_PROFILE', payload: { avatar: undefined } });
+        } finally {
+            setSigningOut(false);
+            setConfirmSignOut(false);
+        }
     };
 
     return (
         <AnimatePresence>
             {isOpen && (
                 <motion.div
-                    initial={{ opacity: 0, scale: 0.95, y: -20 }}
-                    animate={{ opacity: 1, scale: 1, y: 0 }}
-                    exit={{ opacity: 0, scale: 0.95, y: -20 }}
-                    className="absolute top-16 right-4 w-80 bg-[#1a1a1e] border border-white/10 rounded-2xl shadow-2xl z-[100] overflow-hidden"
+                    ref={ref}
+                    initial={{ opacity: 0, y: -6, scale: 0.98 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: -6, scale: 0.98, transition: { duration: 0.12 } }}
+                    transition={{ duration: 0.2, ease: [0.32, 0.72, 0, 1] }}
+                    className="popover fixed top-[92px] right-3 w-[320px] z-[100] overflow-hidden text-underlay-text origin-top-right"
+                    role="dialog"
+                    aria-label="Profile"
                 >
-                    {/* Header */}
-                    <div className="h-32 bg-gradient-to-br from-blue-600 to-purple-600 relative p-6 flex flex-col justify-end">
-                        <button onClick={onClose} className="absolute top-4 right-4 text-white/50 hover:text-white transition-colors">
-                            <X size={18} />
-                        </button>
+                    {/* Identity */}
+                    <div className="flex flex-col items-center px-5 pt-6 pb-5 text-center">
+                        <Avatar name={identity.name} avatar={identity.avatar} size={64} className="mb-3" />
+                        {editing ? (
+                            <form className="flex items-center gap-1.5 w-full" onSubmit={(e) => { e.preventDefault(); saveName(); }}>
+                                <input
+                                    autoFocus
+                                    value={draft}
+                                    onChange={(e) => setDraft(e.target.value)}
+                                    onKeyDown={(e) => e.key === 'Escape' && (e.stopPropagation(), setEditing(false))}
+                                    placeholder={account?.name ?? 'Your name'}
+                                    maxLength={40}
+                                    className="text-field h-8 text-center"
+                                />
+                                <button type="submit" className="icon-button shrink-0 !text-underlay-accent" aria-label="Save name">
+                                    <Check size={16} />
+                                </button>
+                            </form>
+                        ) : (
+                            <button
+                                onClick={() => { setDraft(profile.name); setEditing(true); }}
+                                className="group flex items-center gap-1.5 max-w-full text-[15px] font-semibold tracking-tight rounded-md px-1.5 -mx-1.5 hover:bg-underlay-text/[0.06]"
+                                title="Edit name"
+                            >
+                                <span className="truncate">{identity.name || 'Add your name'}</span>
+                                <Pencil size={12} className="shrink-0 text-underlay-text/40 opacity-0 group-hover:opacity-100 transition-opacity" />
+                            </button>
+                        )}
+                        <p className="mt-0.5 text-[12px] text-underlay-text/50 truncate max-w-full">
+                            {account ? account.email : 'This profile is stored only on this device'}
+                        </p>
+                    </div>
 
-                        <div className="flex items-end gap-4 translate-y-8">
-                            <div className="w-20 h-20 rounded-full bg-zinc-900 border-4 border-[#1a1a1e] flex items-center justify-center overflow-hidden shadow-xl">
-                                {profile.avatar ? (
-                                    <img src={profile.avatar} alt="Avatar" className="w-full h-full object-cover" />
-                                ) : (
-                                    <User size={32} className="text-white/30" />
-                                )}
-                            </div>
+                    {/* Appearance */}
+                    <div className="px-5 pb-4">
+                        <div className="section-label mb-2">Picture</div>
+                        <div className="flex items-center gap-2">
+                            {account?.avatar && (
+                                <AvatarChoice
+                                    selected={profile.avatar === undefined || profile.avatar === account.avatar}
+                                    onSelect={() => dispatch({ type: 'UPDATE_PROFILE', payload: { avatar: undefined } })}
+                                    label="Google photo"
+                                >
+                                    <Avatar name={identity.name} avatar={account.avatar} size={30} />
+                                </AvatarChoice>
+                            )}
+                            {Object.keys(AVATAR_PRESETS).map(preset => (
+                                <AvatarChoice
+                                    key={preset}
+                                    selected={(profile.avatar ?? (account?.avatar ? undefined : 'preset:ocean')) === preset}
+                                    onSelect={() => dispatch({ type: 'UPDATE_PROFILE', payload: { avatar: preset } })}
+                                    label={preset.replace('preset:', '')}
+                                >
+                                    <Avatar name={identity.name} avatar={preset} size={30} />
+                                </AvatarChoice>
+                            ))}
                         </div>
                     </div>
 
-                    {/* Body */}
-                    <div className="pt-10 pb-6 px-6">
-
-                        {/* Name Field */}
-                        <div className="mb-1">
-                            {isEditing ? (
-                                <div className="flex items-center gap-2">
-                                    <input
-                                        value={tempName}
-                                        onChange={e => setTempName(e.target.value)}
-                                        className="bg-white/5 border border-white/10 rounded px-2 py-1 text-sm text-white outline-none focus:border-blue-500 w-full"
-                                        autoFocus
-                                        onKeyDown={e => e.key === 'Enter' && saveName()}
-                                    />
-                                    <button onClick={saveName} className="p-1 bg-green-500/20 text-green-400 rounded hover:bg-green-500/30">
-                                        <Check size={14} />
-                                    </button>
+                    {/* Account */}
+                    <div className="border-t hairline px-5 py-4">
+                        {account ? (
+                            <>
+                                <div className="flex items-center gap-2 text-[12px] text-underlay-text/60 mb-3">
+                                    <GoogleMark />
+                                    <span>Signed in to Google in all non-private tabs</span>
                                 </div>
-                            ) : (
-                                <h2
-                                    className="text-xl font-bold text-white cursor-pointer hover:underline decoration-white/20 underline-offset-4"
-                                    onClick={() => { setTempName(profile.name); setIsEditing(true); }}
-                                >
-                                    {profile.name}
-                                </h2>
-                            )}
-                        </div>
-
-                        <p className="text-white/40 text-sm mb-6">{profile.email || 'Not signed in'}</p>
-
-                        {/* Cartoon Avatar Picker */}
-                        <div className="mb-6">
-                            <h4 className="text-xs font-bold text-white/30 uppercase tracking-widest mb-3">Choose Avatar</h4>
-                            <div className="flex gap-3 overflow-x-auto pb-2 custom-scrollbar mask-gradient-right">
-                                {[
-                                    'https://api.dicebear.com/9.x/adventurer/svg?seed=Felix',
-                                    'https://api.dicebear.com/9.x/adventurer/svg?seed=Aneka',
-                                    'https://api.dicebear.com/9.x/adventurer/svg?seed=Zoey',
-                                    'https://api.dicebear.com/9.x/fun-emoji/svg?seed=Mario',
-                                    'https://api.dicebear.com/9.x/notionists/svg?seed=Leo',
-                                    'https://api.dicebear.com/9.x/micah/svg?seed=Caitlyn',
-                                    'https://api.dicebear.com/9.x/avataaars/svg?seed=Jack',
-                                    'https://api.dicebear.com/9.x/bottts/svg?seed=Cyber'
-                                ].map((url, i) => (
-                                    <button
-                                        key={i}
-                                        onClick={() => dispatch({ type: 'UPDATE_PROFILE', payload: { avatar: url } })}
-                                        className={`flex-shrink-0 w-10 h-10 rounded-full bg-white/5 border-2 overflow-hidden transition-all hover:scale-110 ${profile.avatar === url ? 'border-blue-500 scale-110 shadow-lg shadow-blue-500/20' : 'border-transparent hover:border-white/20'}`}
-                                    >
-                                        <img src={url} alt="Avatar Option" className="w-full h-full object-cover" />
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
-
-                        {!profile.isAuthenticated ? (
-                            <div className="flex flex-col gap-3">
-                                <button
-                                    onClick={handleGoogleSignIn}
-                                    className="w-full py-2.5 bg-white text-black font-medium rounded-lg hover:bg-white/90 transition-colors flex items-center justify-center gap-2 shadow-lg shadow-white/5"
-                                >
-                                    <Chrome size={18} />
-                                    Sign in with Google
-                                </button>
-                                <p className="text-[10px] text-white/30 text-center leading-relaxed">
-                                    Signing in syncs your Google services like YouTube and Gmail automatically across tabs.
-                                </p>
-                            </div>
-                        ) : (
-                            <div className="flex flex-col gap-4">
-                                <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-3 flex items-start gap-3">
-                                    <Shield size={16} className="text-green-500 mt-0.5" />
-                                    <div>
-                                        <h4 className="text-green-400 text-xs font-bold uppercase tracking-wide mb-1">Account Synced</h4>
-                                        <p className="text-green-500/60 text-[10px]">
-                                            You are signed in to Google services.
-                                            YouTube and Gmail will log in automatically.
+                                {confirmSignOut ? (
+                                    <div className="rounded-lg bg-underlay-text/[0.05] p-3">
+                                        <p className="text-[12px] leading-snug text-underlay-text/70 mb-3">
+                                            You'll be signed out of Google, Gmail, YouTube and other Google sites in this browser.
                                         </p>
+                                        <div className="flex gap-2">
+                                            <button className="btn-secondary flex-1" onClick={() => setConfirmSignOut(false)}>Cancel</button>
+                                            <button className="btn-destructive flex-1" onClick={signOut} disabled={signingOut}>
+                                                {signingOut ? <Loader2 size={14} className="animate-spin" /> : 'Sign Out'}
+                                            </button>
+                                        </div>
                                     </div>
-                                </div>
-
-                                <button
-                                    onClick={handleLogout}
-                                    className="w-full py-2 bg-white/5 border border-white/10 text-white/60 hover:text-white hover:bg-white/10 rounded-lg transition-colors flex items-center justify-center gap-2 text-sm"
-                                >
-                                    <LogOut size={16} />
-                                    Sign Out
+                                ) : (
+                                    <div className="flex gap-2">
+                                        <button
+                                            className="btn-secondary flex-1"
+                                            onClick={() => { dispatch({ type: 'NEW_TAB', payload: { url: 'https://myaccount.google.com/' } }); onClose(); }}
+                                        >
+                                            <ExternalLink size={13} /> Manage Account
+                                        </button>
+                                        <button className="btn-secondary flex-1" onClick={() => setConfirmSignOut(true)}>
+                                            <LogOut size={13} /> Sign Out
+                                        </button>
+                                    </div>
+                                )}
+                            </>
+                        ) : (
+                            <>
+                                <button onClick={signIn} className="btn-secondary w-full h-9">
+                                    <GoogleMark /> Sign in with Google
                                 </button>
-                            </div>
+                                <p className="mt-2 text-[11px] leading-snug text-center text-underlay-text/45">
+                                    Signs you in to Gmail, YouTube and other Google sites. Your browsing data stays on this device.
+                                </p>
+                            </>
                         )}
                     </div>
                 </motion.div>
             )}
         </AnimatePresence>
+    );
+}
+
+function AvatarChoice({ selected, onSelect, label, children }: { selected: boolean; onSelect: () => void; label: string; children: React.ReactNode }) {
+    return (
+        <button
+            onClick={onSelect}
+            aria-label={label}
+            aria-pressed={selected}
+            className={`rounded-full p-[2px] transition-shadow duration-150 ${selected ? 'shadow-[0_0_0_2px_rgb(var(--underlay-accent))]' : 'hover:shadow-[0_0_0_2px_rgb(var(--underlay-text)/0.2)]'}`}
+        >
+            {children}
+        </button>
     );
 }

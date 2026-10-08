@@ -8,9 +8,9 @@ import { motion } from 'framer-motion';
 
 type ViewType = 'history' | 'bookmarks' | 'downloads';
 
-export function LibraryPage({ initialView = 'history' }: { initialView?: ViewType }) {
+export function LibraryPage({ initialView = 'history', isActive = true }: { initialView?: ViewType; isActive?: boolean }) {
     const [activeView, setActiveView] = useState<ViewType>(initialView);
-    const { state, dispatch } = useBrowser();
+    const { state, dispatch } = useBrowser(isActive);
 
     // Sync URL query param if needed (optional implementation detail)
 
